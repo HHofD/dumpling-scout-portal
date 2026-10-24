@@ -20,7 +20,7 @@ def check_password():
     with col2:
         password = st.text_input("Enter Team Workspace Password", type="password")
         # Matches against the encrypted Streamlit Secrets environment variable
-        correct_pw = st.secrets.get("WORKSPACE_PASSWORD", "HuhuDumplingScout2026")
+        correct_pw = st.secrets.get("WORKSPACE_PASSWORD", "Dumps2026")
         
         if password == correct_pw:
             st.session_state.password_correct = True

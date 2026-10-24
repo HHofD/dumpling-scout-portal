@@ -3,10 +3,42 @@ import pandas as pd
 from google import genai
 from google.genai import types
 
+# --- PASSWORD GATE (MUST BE AT THE VERY TOP OF THE FILE) ---
+def check_password():
+    """Returns True if the user enters the correct security credentials."""
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+        
+    if st.session_state.password_correct:
+        return True
+
+    # Render a clean, standalone login page
+    st.markdown("<h1 style='text-align: center; color: #E74C3C;'>🥟 Huhu's Command Portal</h1>", unsafe_unsafe_html=True)
+    st.write("")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        password = st.text_input("Enter Team Workspace Password", type="password")
+        # Matches against the encrypted Streamlit Secrets environment variable
+        correct_pw = st.secrets.get("WORKSPACE_PASSWORD", "HuhuDumplingScout2026")
+        
+        if password == correct_pw:
+            st.session_state.password_correct = True
+            st.rerun()
+        elif password:
+            st.error("Incorrect security credentials. Please try again.")
+            
+    return False
+
+if not check_password():
+    st.stop() # 🛑 Stops execution immediately if wrong password
+
+# ====================================================================
+# SECURED APP CODE (Only runs after entering correct password)
+# ====================================================================
 import database as db
 from engine import calculate_dumpling_finances
 
-st.set_page_config(page_title="Huhu's Dumpling Scout Hub", layout="wide", page_icon="🥟")
 db.initialize_database()
 
 st.sidebar.title("🥟 Huhu's Command Portal")
@@ -24,16 +56,22 @@ config = {
     "frozen_upsell_pct": st.sidebar.slider("Frozen Take-Home Upsell %", 0.0, 0.5, 0.25)
 }
 
+st.sidebar.markdown("---")
+st.sidebar.caption("All adjustments automatically recalculate downstream profit margins.")
+
 tab_shared, tab_private, tab_pipeline = st.tabs([
     "👥 Shared Team Board", 
     "🤫 My Private AI Scout", 
     "📊 Opportunities Pipeline"
 ])
 
+# --- TAB 1: SHARED TEAM BOARD ---
 with tab_shared:
     st.subheader("💬 Team Collaboration Lounge")
+    st.caption("Shared workspace for Andrew and Whitney to coordinate dates and batch schedules.")
+    
     team_df = db.load_team_messages()
-    chat_box = st.container(height=420)
+    chat_box = st.container(height=380)
     with chat_box:
         if team_df.empty:
             st.info("No messages posted yet. Start the conversation below!")
@@ -46,10 +84,13 @@ with tab_shared:
         db.save_team_message(current_user, team_input)
         st.rerun()
 
+# --- TAB 2: PRIVATE AI SCOUT ---
 with tab_private:
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
+    st.caption(f"Your private scratchpad. Conversations here are strictly confidential to {current_user}.")
+    
     private_df = db.load_private_messages(current_user)
-    ai_box = st.container(height=420)
+    ai_box = st.container(height=380)
     with ai_box:
         if private_df.empty:
             st.info("Ask Gemini to research any event, city, athletic race, or paste a URL to analyze.")
@@ -61,8 +102,17 @@ with tab_private:
     if ai_input:
         db.save_private_message(current_user, "user", ai_input)
         
+        # Grounded Gemini Execution
         client = genai.Client(api_key=st.secrets.get("GEMINI_API_KEY", ""))
-        prompt = f"User prompt: '{ai_input}'. Business: Huhu's House of Dumplings (gluten-free vegan dumplings Tucson). Search web for events in Tucson/Phoenix/UT/SoAZ. Extract details and advise."
+        prompt = f"""
+        You are an event scouting and evaluation assistant for Huhu's House of Dumplings.
+        The business offers all-natural, gluten-free, and plant-based/vegan Chinese dumplings based in Tucson, AZ.
+        User prompt: '{ai_input}'
+        
+        Search the web for relevant upcoming events in Tucson, Phoenix metro, Southern AZ, or Utah.
+        Extract location, dates, expected attendance, booth fees, and demographic alignment.
+        Provide a concise evaluation and a clear recommendation.
+        """
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -114,11 +164,12 @@ with tab_private:
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
+# --- TAB 3: PIPELINE & ACTION TRACKER ---
 with tab_pipeline:
     st.subheader("📋 Active Opportunities Pipeline")
     pipeline_df = db.load_pipeline()
     if pipeline_df.empty:
-        st.info("The pipeline is empty. Add events via Tab 2.")
+        st.info("The pipeline is currently empty. Add events via Tab 2.")
     else:
         st.dataframe(
             pipeline_df[["id", "event_name", "location", "event_date", "decision_tier", "gross_revenue", "total_expenses", "net_profit", "roi_text", "prep_dumplings", "status"]],

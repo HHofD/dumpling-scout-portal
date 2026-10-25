@@ -11,7 +11,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns()
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -117,24 +117,99 @@ with tab_private:
         st.rerun()
 
     st.markdown("---")
-    st.subheader("⚡ Quick Event Evaluator & Pipeline Adder")
+    st.subheader("⚡ Quick Event Evaluator & Auto-Enrich")
+    st.caption("Enter an event name or web link to let Gemini research missing details with full source citations.")
+    
+    if "prefill" not in st.session_state:
+        st.session_state.prefill = {
+            "name": "Scottsdale Celiac 5K + Treat", "loc": "Scottsdale, AZ", "date": "2026-11-01", "deadline": "2026-10-25",
+            "dist": 115.0, "att": 800, "hours": 5.0, "fee": 150.0, "cat": "Niche GF / Athletic",
+            "power": False, "is_ai": False, "source_url": "", "source_summary": ""
+        }
+
+    col_s1, col_s2 = st.columns()
+    with col_s1:
+        quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
+    with col_s2:
+        st.write("")
+        st.write("")
+        if st.button("🔍 Auto-Fill with AI", use_container_width=True):
+            if quick_query:
+                with st.spinner("Gemini is searching web records for event details and sources..."):
+                    client = genai.Client(api_key=st.secrets.get("GEMINI_API_KEY", ""))
+                    enrich_prompt = f"""
+                    Search the web for event details for: '{quick_query}'.
+                    The user runs Huhu's House of Dumplings (gluten-free, vegan food company based in Tucson, AZ).
+                    Extract the following into clean JSON:
+                    - event_name (string)
+                    - location (City, State)
+                    - event_date (YYYY-MM-DD or date string)
+                    - application_deadline (YYYY-MM-DD string when vendor/food registration closes; if unknown, estimate 30 days prior to event_date)
+                    - distance_from_tucson_miles (float driving estimate from Tucson, AZ)
+                    - estimated_attendance (integer estimate)
+                    - operating_hours (float daily hours, default 6.0)
+                    - vendor_fee_usd (float estimate, default 150.0)
+                    - category ('Niche GF / Athletic', 'General Mass / Street Fair', 'Vegan / Wellness')
+                    - power_available (boolean)
+                    - primary_source_url (string URL where details were verified)
+                    - source_summary (1-sentence summary of where data was verified, e.g. 'Found on official municipal arts festival vendor guide')
+                    """
+                    try:
+                        import json
+                        res = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=enrich_prompt,
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json",
+                                tools=[types.Tool(google_search=types.GoogleSearch())]
+                            )
+                        )
+                        data = json.loads(res.text)
+                        st.session_state.prefill = {
+                            "name": data.get("event_name", quick_query),
+                            "loc": data.get("location", "Arizona"),
+                            "date": str(data.get("event_date", "2026-11-01")),
+                            "deadline": str(data.get("application_deadline", "2026-10-25")),
+                            "dist": float(data.get("distance_from_tucson_miles", 100.0)),
+                            "att": int(data.get("estimated_attendance", 1000)),
+                            "hours": float(data.get("operating_hours", 6.0)),
+                            "fee": float(data.get("vendor_fee_usd", 150.0)),
+                            "cat": data.get("category", "General Mass / Street Fair"),
+                            "power": bool(data.get("power_available", True)),
+                            "is_ai": True,
+                            "source_url": data.get("primary_source_url", ""),
+                            "source_summary": data.get("source_summary", "Extracted via Google Grounded Search")
+                        }
+                        st.rerun()
+                    except Exception as err:
+                        st.error(f"Auto-fill error: {err}")
+
+    if st.session_state.prefill.get("is_ai"):
+        src_link = st.session_state.prefill.get("source_url", "")
+        src_text = f" [🔗 Open Source Webpage]({src_link})" if src_link else ""
+        st.info(f"🤖 **AI Auto-Enriched Data**: {st.session_state.prefill.get('source_summary', '')}{src_text}\n\n*Highlighted fields below contain parameters extracted directly by Gemini. Review and adjust any values as needed before saving.*")
+
     with st.form("quick_eval_form"):
+        ai_tag = " 🤖 [AI]" if st.session_state.prefill.get("is_ai") else ""
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            e_name = st.text_input("Event Name", value="Scottsdale Celiac 5K + Treat")
-            e_loc = st.text_input("Location", value="Scottsdale, AZ")
-            e_date = st.text_input("Date", value="2026-11-01")
-            e_griddles = st.number_input("Number of Griddles in Setup", min_value=1, max_value=6, value=2, step=1, help="Max 24 pcs / 12 min per griddle")
+            e_name = st.text_input(f"Event Name{ai_tag}", value=st.session_state.prefill["name"])
+            e_loc = st.text_input(f"Location{ai_tag}", value=st.session_state.prefill["loc"])
+            e_date = st.text_input(f"Event Date{ai_tag}", value=st.session_state.prefill["date"])
+            e_deadline = st.text_input(f"App Deadline{ai_tag}", value=st.session_state.prefill.get("deadline", "2026-10-25"))
+            e_griddles = st.number_input("Number of Griddles in Setup", min_value=1, max_value=6, value=2, step=1)
         with col_b:
-            e_dist = st.number_input("Distance from Tucson (miles)", value=115.0, step=5.0)
-            e_att = st.number_input("Estimated Attendance", value=800, step=50)
-            e_hours = st.number_input("Operating Hours", value=5.0, step=0.5)
+            e_dist = st.number_input(f"Distance from Tucson (miles){ai_tag}", value=st.session_state.prefill["dist"], step=5.0)
+            e_att = st.number_input(f"Estimated Attendance{ai_tag}", value=st.session_state.prefill["att"], step=50)
+            e_hours = st.number_input(f"Operating Hours{ai_tag}", value=st.session_state.prefill["hours"], step=0.5)
         with col_c:
-            e_cat = st.selectbox("Category", ["Niche GF / Athletic", "General Mass / Street Fair", "Vegan / Wellness"])
+            cats = ["Niche GF / Athletic", "General Mass / Street Fair", "Vegan / Wellness"]
+            idx = cats.index(st.session_state.prefill["cat"]) if st.session_state.prefill["cat"] in cats else 1
+            e_cat = st.selectbox(f"Category{ai_tag}", cats, index=idx)
             e_format = st.selectbox("Product Format", ["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"])
             e_status = st.selectbox("Participation Status", ["Discovered", "Already Participating", "Booked", "Applied", "Reviewing"])
-            e_fee = st.number_input("Vendor Booth Fee ($)", value=150.0, step=25.0)
-            e_power = st.checkbox("Power & Water Provided", value=False)
+            e_fee = st.number_input(f"Vendor Booth Fee ($){ai_tag}", value=st.session_state.prefill["fee"], step=25.0)
+            e_power = st.checkbox(f"Power & Water Provided{ai_tag}", value=st.session_state.prefill["power"])
             
         submit_btn = st.form_submit_button("Run Financial Evaluation & Log to Pipeline")
         if submit_btn:
@@ -156,7 +231,8 @@ with tab_private:
                 "est_attendance": e_att, "gross_revenue": results["gross_revenue"],
                 "total_expenses": results["total_expenses"], "net_profit": results["net_profit"],
                 "roi_text": results["roi_text"], "decision_tier": results["decision_tier"],
-                "prep_dumplings": results["prep_dumplings"], "notes": f"Added by {current_user} ({e_griddles} griddles)"
+                "prep_dumplings": results["prep_dumplings"],
+                "notes": f"Added by {current_user} ({e_griddles} griddles) | Src: " + st.session_state.prefill.get("source_url", "Manual")
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
@@ -200,10 +276,10 @@ with tab_pipeline:
         
     st.markdown("---")
     st.subheader("🔄 Update Event Status & Format")
-    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
+    col_u1, col_u2, col_u3, col_u4 = st.columns()
     with col_u1:
         numeric_ids = pd.to_numeric(pipeline_df["id"], errors="coerce").dropna().astype(int).tolist()
-        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else [1])
+        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else)
     with col_u2:
         new_stat = st.selectbox("Participation Status", ["Already Participating", "Booked", "Applied", "Reviewing", "Discovered", "Completed", "Declined"])
     with col_u3:

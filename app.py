@@ -7,6 +7,8 @@ import json
 from google import genai
 from google.genai import types
 
+st.set_page_config(page_title="Huhu's Dumpling Scout Hub", layout="wide", page_icon="🥟")
+
 def get_cookie_manager():
     return stx.CookieManager()
 

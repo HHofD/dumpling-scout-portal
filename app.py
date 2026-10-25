@@ -1,6 +1,5 @@
 import streamlit as st
 
-# 🛑 CRITICAL: st.set_page_config MUST be the very first Streamlit command!
 st.set_page_config(page_title="Huhu's Dumpling Scout Hub", layout="wide", page_icon="🥟")
 
 import extra_streamlit_components as stx
@@ -22,7 +21,7 @@ def get_gemini_api_key():
         if section in st.secrets and isinstance(st.secrets[section], dict):
             if "GEMINI_API_KEY" in st.secrets[section]:
                 return str(st.secrets[section]["GEMINI_API_KEY"]).strip()
-    st.error("⚠️ Gemini API Key missing from Secrets config.")
+    st.error("Gemini API Key missing from Secrets config.")
     return ""
 
 def authenticate_user():
@@ -40,7 +39,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns()
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -84,14 +83,24 @@ if st.sidebar.button("Log Out"):
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Operational Economics")
+
+val_price = st.sidebar.number_input("Average Menu Item Price ($)", value=12.0, step=0.5, help="Price per 4-dumpling serving")
+val_frozen = st.sidebar.number_input("Frozen 4-Pack Price ($)", value=16.0, step=0.5)
+val_cogs = st.sidebar.number_input("Raw Ingredient Cost / Dumpling ($)", value=0.42, step=0.01)
+val_wage = st.sidebar.number_input("Staff Hourly Wage ($)", value=20.0, step=1.0)
+val_frozen_pct = st.sidebar.slider("Frozen Sales % at Mixed Events", 0.0, 1.0, 0.25, step=0.05)
+val_fulfillment = st.sidebar.slider("Fulfillment Time Target (min/order)", 0.5, 5.0, 1.5, step=0.1)
+
 config = {
-    "item_menu_price": st.sidebar.number_input("Average Menu Item Price ($)", value=12.0, step=0.5, help="Average price per 4-dumpling serving"),
-    "frozen_pack_price": st.sidebar.number_input("Frozen 4-Pack Price ($)", value=16.0, step=0.5),
-    "ingredient_cogs": st.sidebar.number_input("Raw Ingredient Cost / Dumpling ($)", value=0.42, step=0.01),
-    "hourly_wage": st.sidebar.number_input("Staff Hourly Wage ($)", value=20.0, step=1.0)
+    "item_menu_price": val_price,
+    "frozen_pack_price": val_frozen,
+    "ingredient_cogs": val_cogs,
+    "hourly_wage": val_wage,
+    "frozen_upsell_pct": val_frozen_pct,
+    "fulfillment_time_target": val_fulfillment
 }
 
-st.sidebar.caption("🍳 Griddle throughput rule: 24 dumplings / griddle every 12 mins (120 pcs/hr). 1 cook manages 2-3 griddles.")
+st.sidebar.caption("🍳 Griddle math: 24 dumplings / griddle every 12 mins. 1 cook handles up to 3 griddles; 4+ griddles requires 2 cooks.")
 
 tab_shared, tab_private, tab_pipeline = st.tabs([
     "👥 Shared Team Board", 
@@ -118,12 +127,12 @@ with tab_shared:
 
 with tab_private:
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
-    st.caption("Your autonomous research & operations agent. You can ask it to search events OR directly add/update events in your pipeline!")
+    st.caption("Your autonomous research & operations agent. Ask it to search events or manage your pipeline!")
     private_df = db.load_private_messages(current_user)
     ai_box = st.container(height=380)
     with ai_box:
         if private_df.empty:
-            st.info(f"Welcome {current_user}! You can ask me to research events, OR tell me: 'Add Tucson Meet Yourself to pipeline with 3 griddles as Booked', or 'Mark event #2 as Applied'.")
+            st.info(f"Welcome {current_user}! Ask me to research events, or say: 'Add Tucson Meet Yourself to pipeline', or 'Mark event #2 as Applied'.")
         for _, row in private_df.iterrows():
             with st.chat_message(row["role"]):
                 st.write(row["message"])
@@ -148,9 +157,8 @@ with tab_private:
         {pipeline_summary if pipeline_summary else "No events in pipeline yet."}
 
         CAPABILITIES:
-        1. If the user asks you to ADD or SAVE an event to the pipeline:
-           - Extract or research the event details (attendance, dates, distance from Tucson, vendor fee).
-           - Output a structured ACTION block at the very end of your reply in this exact JSON format:
+        1. If user asks to ADD or SAVE an event:
+           Output a structured ACTION block at the end of your reply in this exact JSON format:
            ```action_json
            {{
              "action": "add_event",
@@ -162,16 +170,14 @@ with tab_private:
              "participation_status": "Discovered" | "Already Participating" | "Booked" | "Applied" | "Reviewing",
              "estimated_attendance": 1000,
              "operating_hours": 6.0,
-             "num_griddles": 2,
              "distance_from_tucson_miles": 115.0,
              "vendor_fee_usd": 150.0,
              "power_available": true
            }}
            ```
 
-        2. If the user asks you to UPDATE or EDIT an existing event's status or format:
-           - Match the event name or ID from the Current Pipeline Database above.
-           - Output a structured ACTION block at the very end of your reply:
+        2. If user asks to UPDATE or EDIT an existing event:
+           Output a structured ACTION block:
            ```action_json
            {{
              "action": "update_event",
@@ -181,8 +187,8 @@ with tab_private:
            }}
            ```
 
-        3. If the user is just researching or asking questions:
-           - Answer thoroughly with web research, financial projections, and clear advice. Do NOT include an action_json block.
+        3. If researching:
+           Answer thoroughly with web research and clear advice. Do NOT include an action_json block.
         """
         
         response = client.models.generate_content(
@@ -208,7 +214,6 @@ with tab_private:
                         "category": action_data.get("category", "General Mass / Street Fair"),
                         "product_format": action_data.get("product_format", "Both Hot & Frozen"),
                         "operating_hours": action_data.get("operating_hours", 6.0),
-                        "num_griddles": action_data.get("num_griddles", 2),
                         "distance_from_tucson_miles": action_data.get("distance_from_tucson_miles", 100.0),
                         "location": action_data.get("location", "Arizona"),
                         "vendor_fee_usd": action_data.get("vendor_fee_usd", 150.0),
@@ -224,7 +229,6 @@ with tab_private:
                         "participation_status": action_data.get("participation_status", "Discovered"),
                         "est_attendance": action_data.get("estimated_attendance"),
                         "operating_hours": action_data.get("operating_hours", 6.0),
-                        "num_griddles": action_data.get("num_griddles", 2),
                         "distance_from_tucson_miles": action_data.get("distance_from_tucson_miles", 100.0),
                         "vendor_fee_usd": action_data.get("vendor_fee_usd", 150.0),
                         "power_available": action_data.get("power_available", True),
@@ -234,18 +238,18 @@ with tab_private:
                         "roi_text": finances["roi_text"],
                         "decision_tier": finances["decision_tier"],
                         "prep_dumplings": finances["prep_dumplings"],
-                        "notes": f"Added via AI Chat by {current_user} ({action_data.get('num_griddles', 2)} griddles)"
+                        "notes": f"Added via AI Chat by {current_user} (Griddles: {finances['required_griddles']})"
                     })
-                    clean_reply += f"\n\n---\n✅ **Action Completed:** Successfully saved **'{action_data.get('event_name')}'** to your Google Sheet Pipeline! (Projected Net Profit: **${finances['net_profit']:,.2f}**, Target: **{finances['prep_dumplings']} dumplings**)."
+                    clean_reply += f"\n\n---\n✅ **Action Completed:** Saved **'{action_data.get('event_name')}'** to Google Sheets! (Net Profit: **${finances['net_profit']:,.2f}**, Target: **{finances['prep_dumplings']} dumplings**, Griddles: **{finances['required_griddles']}**)."
                     
                 elif action_data.get("action") == "update_event":
                     ev_id = action_data.get("event_id")
                     st_val = action_data.get("new_status", "Applied")
                     fmt_val = action_data.get("new_format", "Both Hot & Frozen")
                     db.update_event_status_and_format(ev_id, st_val, fmt_val)
-                    clean_reply += f"\n\n---\n✅ **Action Completed:** Successfully updated Event #{ev_id} to Status: **{st_val}** | Format: **{fmt_val}** in Google Sheets!"
+                    clean_reply += f"\n\n---\n✅ **Action Completed:** Updated Event #{ev_id} to Status: **{st_val}** | Format: **{fmt_val}** in Google Sheets!"
             except Exception as e:
-                clean_reply += f"\n\n*(Could not execute autonomous action: {e})*"
+                clean_reply += f"\n\n*(Action could not complete: {e})*"
 
         db.save_private_message(current_user, "assistant", clean_reply)
         st.rerun()
@@ -261,7 +265,7 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns([3, 1])
+    col_s1, col_s2 = st.columns()
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -273,21 +277,20 @@ with tab_private:
                     api_k = get_gemini_api_key()
                     client = genai.Client(api_key=api_k)
                     enrich_prompt = f"""
-                    Search the web for event details for: '{quick_query}'.
-                    The user runs Huhu's House of Dumplings (gluten-free, vegan food company based in Tucson, AZ).
-                    Extract the following into clean JSON:
+                    Search web for event details: '{quick_query}'. Business: Huhu's House of Dumplings (gluten-free vegan food in Tucson, AZ).
+                    Extract clean JSON:
                     - event_name (string)
                     - location (City, State)
                     - event_date (YYYY-MM-DD or date string)
-                    - application_deadline (YYYY-MM-DD string when vendor/food registration closes; if unknown, estimate 30 days prior to event_date)
+                    - application_deadline (YYYY-MM-DD string, or 30 days before event)
                     - distance_from_tucson_miles (float driving estimate from Tucson, AZ)
                     - estimated_attendance (integer estimate)
                     - operating_hours (float daily hours, default 6.0)
                     - vendor_fee_usd (float estimate, default 150.0)
                     - category ('Niche GF / Athletic', 'General Mass / Street Fair', 'Vegan / Wellness')
                     - power_available (boolean)
-                    - primary_source_url (string URL where details were verified)
-                    - source_summary (1-sentence summary of where data was verified, e.g. 'Found on official municipal arts festival vendor guide')
+                    - primary_source_url (string URL)
+                    - source_summary (1-sentence summary of verification source)
                     """
                     try:
                         res = client.models.generate_content(
@@ -321,7 +324,7 @@ with tab_private:
     if st.session_state.prefill.get("is_ai"):
         src_link = st.session_state.prefill.get("source_url", "")
         src_text = f" [🔗 Open Source Webpage]({src_link})" if src_link else ""
-        st.info(f"🤖 **AI Auto-Enriched Data**: {st.session_state.prefill.get('source_summary', '')}{src_text}\n\n*Highlighted fields below contain parameters extracted directly by Gemini. Review and adjust any values as needed before saving.*")
+        st.info(f"🤖 **AI Auto-Enriched Data**: {st.session_state.prefill.get('source_summary', '')}{src_text}\n\n*Highlighted fields below were extracted by Gemini. Adjust values as needed before saving.*")
 
     with st.form("quick_eval_form"):
         ai_tag = " 🤖 [AI]" if st.session_state.prefill.get("is_ai") else ""
@@ -331,7 +334,6 @@ with tab_private:
             e_loc = st.text_input(f"Location{ai_tag}", value=st.session_state.prefill["loc"])
             e_date = st.text_input(f"Event Date{ai_tag}", value=st.session_state.prefill["date"])
             e_deadline = st.text_input(f"App Deadline{ai_tag}", value=st.session_state.prefill.get("deadline", "2026-10-25"))
-            e_griddles = st.number_input("Number of Griddles in Setup", min_value=1, max_value=6, value=2, step=1)
         with col_b:
             e_dist = st.number_input(f"Distance from Tucson (miles){ai_tag}", value=st.session_state.prefill["dist"], step=5.0)
             e_att = st.number_input(f"Estimated Attendance{ai_tag}", value=st.session_state.prefill["att"], step=50)
@@ -352,7 +354,6 @@ with tab_private:
                 "category": e_cat,
                 "product_format": e_format,
                 "operating_hours": e_hours,
-                "num_griddles": e_griddles,
                 "distance_from_tucson_miles": e_dist,
                 "location": e_loc,
                 "vendor_fee_usd": e_fee,
@@ -362,12 +363,12 @@ with tab_private:
             db.add_event_to_pipeline({
                 "event_name": e_name, "location": e_loc, "event_date": e_date,
                 "category": e_cat, "product_format": e_format, "participation_status": e_status,
-                "est_attendance": e_att, "operating_hours": e_hours, "num_griddles": e_griddles,
+                "est_attendance": e_att, "operating_hours": e_hours,
                 "distance_from_tucson_miles": e_dist, "vendor_fee_usd": e_fee, "power_available": e_power,
                 "gross_revenue": results["gross_revenue"], "total_expenses": results["total_expenses"],
                 "net_profit": results["net_profit"], "roi_text": results["roi_text"],
                 "decision_tier": results["decision_tier"], "prep_dumplings": results["prep_dumplings"],
-                "notes": f"Added by {current_user} ({e_griddles} griddles) | Deadline: {e_deadline} | Src: " + st.session_state.prefill.get("source_url", "Manual")
+                "notes": f"Added by {current_user} (Griddles: {results['required_griddles']}) | Deadline: {e_deadline} | Src: " + st.session_state.prefill.get("source_url", "Manual")
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
@@ -383,14 +384,6 @@ with tab_pipeline:
         except Exception:
             return default
 
-    def safe_int(val, default):
-        try:
-            if pd.isna(val) or val is None or str(val).strip() == "":
-                return default
-            return int(float(str(val).replace(",", "").strip()))
-        except Exception:
-            return default
-
     display_rows = []
     if not pipeline_df.empty and "event_name" in pipeline_df.columns:
         for _, row in pipeline_df.iterrows():
@@ -401,7 +394,6 @@ with tab_pipeline:
                     "category": str(row.get("category") or "General Mass / Street Fair"),
                     "product_format": str(row.get("product_format") or "Both Hot & Frozen"),
                     "operating_hours": safe_float(row.get("operating_hours"), 6.0),
-                    "num_griddles": safe_int(row.get("num_griddles"), 2),
                     "distance_from_tucson_miles": safe_float(row.get("distance_from_tucson_miles"), 100.0),
                     "location": str(row.get("location") or "Arizona"),
                     "vendor_fee_usd": safe_float(row.get("vendor_fee_usd"), 150.0),
@@ -413,6 +405,8 @@ with tab_pipeline:
                     "Event Name": ev_name,
                     "Location": str(row.get("location", "")),
                     "Date": str(row.get("event_date", "")),
+                    "Crowd": f"{int(safe_float(row.get('estimated_attendance'), 0)):,}",
+                    "Griddles": f"{live_fin['required_griddles']} pcs",
                     "Format": str(row.get("product_format", "Both Hot & Frozen")),
                     "Status": str(row.get("participation_status", "Discovered")),
                     "Tier": live_fin["decision_tier"],
@@ -428,13 +422,12 @@ with tab_pipeline:
     
     if final_table.empty:
         final_table = pd.DataFrame(columns=[
-            "ID", "Event Name", "Location", "Date", "Format", "Status",
+            "ID", "Event Name", "Location", "Date", "Crowd", "Griddles", "Format", "Status",
             "Tier", "Revenue", "Costs", "Profit", "ROI", "Target (pcs)", "Notes"
         ])
 
-    st.caption(f"📊 Showing all {len(final_table.columns)} columns • Dynamically recalculates live on sidebar slider changes")
+    st.caption(f"📊 Showing all {len(final_table.columns)} columns • Values recalculate live on sidebar slider changes")
     
-    # 🧼 CLEAN & SAFE RENDER: use_container_width=True with concise headers
     st.dataframe(
         final_table,
         use_container_width=True,
@@ -442,11 +435,11 @@ with tab_pipeline:
     )
     
     if final_table.empty:
-        st.info("ℹ️ The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
+        st.info("The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
         
     st.markdown("---")
     st.subheader("🔄 Update Event Status & Format")
-    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
+    col_u1, col_u2, col_u3, col_u4 = st.columns()
     with col_u1:
         valid_ids = [r["ID"] for r in display_rows if r["ID"].strip()] if display_rows else ["1"]
         selected_id = st.selectbox("Select Event ID", valid_ids)

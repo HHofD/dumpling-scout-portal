@@ -1,7 +1,11 @@
+import streamlit as st
+
+# 🛑 CRITICAL: st.set_page_config MUST be the very first Streamlit command!
+st.set_page_config(page_title="Huhu's Dumpling Scout Hub", layout="wide", page_icon="🥟")
+
 import extra_streamlit_components as stx
 import datetime
 import time
-import streamlit as st
 import pandas as pd
 import json
 from google import genai
@@ -412,11 +416,11 @@ with tab_pipeline:
                     "Format": str(row.get("product_format", "Both Hot & Frozen")),
                     "Status": str(row.get("participation_status", "Discovered")),
                     "Tier": live_fin["decision_tier"],
-                    "Gross Revenue ($)": f"${live_fin['gross_revenue']:,.2f}",
-                    "Total Costs ($)": f"${live_fin['total_expenses']:,.2f}",
-                    "Net Profit ($)": f"${live_fin['net_profit']:,.2f}",
+                    "Revenue": f"${live_fin['gross_revenue']:,.2f}",
+                    "Costs": f"${live_fin['total_expenses']:,.2f}",
+                    "Profit": f"${live_fin['net_profit']:,.2f}",
                     "ROI": live_fin["roi_text"],
-                    "Dumplings Target (pcs)": f"{live_fin['prep_dumplings']:,} pcs",
+                    "Target (pcs)": f"{live_fin['prep_dumplings']:,}",
                     "Notes": str(row.get("notes", ""))
                 })
 
@@ -425,32 +429,16 @@ with tab_pipeline:
     if final_table.empty:
         final_table = pd.DataFrame(columns=[
             "ID", "Event Name", "Location", "Date", "Format", "Status",
-            "Tier", "Gross Revenue ($)", "Total Costs ($)", "Net Profit ($)",
-            "ROI", "Dumplings Target (pcs)", "Notes"
+            "Tier", "Revenue", "Costs", "Profit", "ROI", "Target (pcs)", "Notes"
         ])
 
     st.caption(f"📊 Showing all {len(final_table.columns)} columns • Dynamically recalculates live on sidebar slider changes")
     
-    # 🧼 SECURED RENDER: Clean column_config WITHOUT the invalid "disabled_wrap" parameter!
+    # 🧼 CLEAN & SAFE RENDER: use_container_width=True with concise headers
     st.dataframe(
         final_table,
         use_container_width=True,
-        hide_index=True,
-        column_config={
-            "ID": st.column_config.TextColumn(width="small"),
-            "Event Name": st.column_config.TextColumn(width="medium"),
-            "Location": st.column_config.TextColumn(width="small"),
-            "Date": st.column_config.TextColumn(width="small"),
-            "Format": st.column_config.TextColumn(width="small"),
-            "Status": st.column_config.TextColumn(width="small"),
-            "Tier": st.column_config.TextColumn(width="small"),
-            "Gross Revenue ($)": st.column_config.TextColumn(width="small"),
-            "Total Costs ($)": st.column_config.TextColumn(width="small"),
-            "Net Profit ($)": st.column_config.TextColumn(width="small"),
-            "ROI": st.column_config.TextColumn(width="small"),
-            "Dumplings Target (pcs)": st.column_config.TextColumn(width="small"),
-            "Notes": st.column_config.TextColumn(width="medium")
-        }
+        hide_index=True
     )
     
     if final_table.empty:

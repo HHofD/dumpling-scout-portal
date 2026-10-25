@@ -10,11 +10,49 @@ PIPELINE_COLUMNS = [
     "distance_from_tucson_miles", "vendor_fee_usd", "power_available", "category"
 ]
 
+DEFAULT_SETTINGS = {
+    "item_menu_price": 12.0,
+    "frozen_pack_price": 16.0,
+    "ingredient_cogs": 0.42,
+    "hourly_wage": 20.0,
+    "frozen_upsell_pct": 0.25,
+    "fulfillment_time_target": 1.5
+}
+
 def get_gsheets_connection():
     return st.connection("gsheets", type=GSheetsConnection)
 
 def initialize_database():
     pass
+
+def load_settings():
+    conn = get_gsheets_connection()
+    try:
+        df = conn.read(worksheet="Settings", ttl="30s")
+        if not df.empty and "setting_key" in df.columns and "setting_value" in df.columns:
+            settings_dict = dict(zip(df["setting_key"].astype(str), pd.to_numeric(df["setting_value"], errors="coerce")))
+            result = DEFAULT_SETTINGS.copy()
+            for k, v in settings_dict.items():
+                if k in result and pd.notna(v):
+                    result[k] = float(v)
+            return result
+    except Exception:
+        pass
+    return DEFAULT_SETTINGS.copy()
+
+def save_settings(new_settings: dict):
+    conn = get_gsheets_connection()
+    try:
+        df = pd.DataFrame([
+            {"setting_key": k, "setting_value": float(v)}
+            for k, v in new_settings.items()
+        ])
+        conn.update(worksheet="Settings", data=df)
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Failed to save settings to Google Sheets: {e}")
+        return False
 
 def save_team_message(user_name: str, message: str):
     conn = get_gsheets_connection()
@@ -110,7 +148,6 @@ def add_event_to_pipeline(data: dict):
 def load_pipeline():
     conn = get_gsheets_connection()
     try:
-        # Cache for 60 seconds so slider tweaks do not hit Google API
         df = conn.read(worksheet="Pipeline", ttl="60s")
     except Exception:
         df = pd.DataFrame(columns=PIPELINE_COLUMNS)

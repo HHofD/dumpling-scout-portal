@@ -39,7 +39,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns()
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -253,7 +253,7 @@ with tab_private:
         
         if "```action_json" in raw_reply:
             try:
-                json_part = raw_reply.split("```action_json")[1].split("```")[0].strip()
+                json_part = raw_reply.split("```action_json").split("```")[0].strip()
                 action_data = json.loads(json_part)
                 clean_reply = raw_reply.split("```action_json")[0].strip()
                 
@@ -314,7 +314,7 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns([3, 1])
+    col_s1, col_s2 = st.columns()
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -459,6 +459,8 @@ with tab_pipeline:
                         "power_available": pwr_val
                     }
                     live_fin = calculate_dumpling_finances(recalc_input, config)
+                    
+                    # RETAIN DYNAMIC CALCULATIONS
                     rev_str = f"${live_fin['gross_revenue']:,.2f}"
                     cost_str = f"${live_fin['total_expenses']:,.2f}"
                     prof_str = f"${live_fin['net_profit']:,.2f}"
@@ -484,7 +486,7 @@ with tab_pipeline:
                     "Griddles": grid_str,
                     "Format": fmt_val,
                     "Status": str(row.get("participation_status", "Discovered")),
-                    "Tier": tier_str,
+                    "Tier": tier_str, # FORCED DYNAMIC REFLECTION
                     "Revenue": rev_str,
                     "Costs": cost_str,
                     "Profit": prof_str,
@@ -503,7 +505,6 @@ with tab_pipeline:
 
     st.caption("📊 Showing all columns responsively across screen width • Double-click any cell below to edit in-line!")
     
-    # UPGRADED: st.data_editor makes the entire table fully interactive and editable on-screen!
     edited_df = st.data_editor(
         final_table,
         use_container_width=True,
@@ -528,19 +529,17 @@ with tab_pipeline:
         key="pipeline_editor"
     )
     
-    # Detect in-line edits and write back to Google Sheets automatically
+    # Write back in-line edits and force recalculate
     if st.session_state.get("pipeline_editor") and "edited_rows" in st.session_state.pipeline_editor:
         changes = st.session_state.pipeline_editor["edited_rows"]
         if changes:
             for row_idx, updated_cols in changes.items():
                 try:
-                    # Retrieve the un-edited Event ID from the selected row index
                     target_id = int(final_table.iloc[int(row_idx)]["ID"])
-                    # Default values from the selected edited row
                     new_status_val = updated_cols.get("Status", final_table.iloc[int(row_idx)]["Status"])
                     new_format_val = updated_cols.get("Format", final_table.iloc[int(row_idx)]["Format"])
                     
-                    # Update status, format, and recalculate on the fly!
+                    # Update parameters
                     db.update_event_status_and_format(target_id, new_status_val, new_format_val)
                     st.success(f"Successfully saved edits for Event #{target_id} directly to Google Sheets!")
                     st.rerun()

@@ -3,7 +3,6 @@ import pandas as pd
 from google import genai
 from google.genai import types
 
-# --- 1. USER AUTHENTICATION GATE ---
 def authenticate_user():
     if "authenticated_user" in st.session_state and st.session_state.authenticated_user:
         return st.session_state.authenticated_user
@@ -38,9 +37,6 @@ current_user = authenticate_user()
 if not current_user:
     st.stop()
 
-# ====================================================================
-# SECURE WORKSPACE
-# ====================================================================
 import database as db
 from engine import calculate_dumpling_finances
 
@@ -88,7 +84,7 @@ with tab_shared:
 
 with tab_private:
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
-    st.caption("Your private scratchpad. Conversations here are strictly confidential.")
+    st.caption("Your confidential research workspace.")
     private_df = db.load_private_messages(current_user)
     ai_box = st.container(height=380)
     with ai_box:
@@ -135,6 +131,8 @@ with tab_private:
             e_hours = st.number_input("Operating Hours", value=5.0, step=0.5)
         with col_c:
             e_cat = st.selectbox("Category", ["Niche GF / Athletic", "General Mass / Street Fair", "Vegan / Wellness"])
+            e_format = st.selectbox("Product Format", ["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"])
+            e_status = st.selectbox("Participation Status", ["Discovered", "Already Participating", "Booked", "Applied", "Reviewing"])
             e_fee = st.number_input("Vendor Booth Fee ($)", value=150.0, step=25.0)
             e_power = st.checkbox("Power & Water Provided", value=False)
             
@@ -143,6 +141,7 @@ with tab_private:
             calc_input = {
                 "estimated_attendance": e_att,
                 "category": e_cat,
+                "product_format": e_format,
                 "operating_hours": e_hours,
                 "distance_from_tucson_miles": e_dist,
                 "location": e_loc,
@@ -152,44 +151,69 @@ with tab_private:
             results = calculate_dumpling_finances(calc_input, config)
             db.add_event_to_pipeline({
                 "event_name": e_name, "location": e_loc, "event_date": e_date,
-                "category": e_cat, "est_attendance": e_att, "gross_revenue": results["gross_revenue"],
+                "category": e_cat, "product_format": e_format, "participation_status": e_status,
+                "est_attendance": e_att, "gross_revenue": results["gross_revenue"],
                 "total_expenses": results["total_expenses"], "net_profit": results["net_profit"],
                 "roi_text": results["roi_text"], "decision_tier": results["decision_tier"],
-                "prep_dumplings": results["prep_dumplings"], "status": "Discovered",
-                "notes": f"Added by {current_user}"
+                "prep_dumplings": results["prep_dumplings"], "notes": f"Added by {current_user}"
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
 with tab_pipeline:
     st.subheader("📋 Active Opportunities Pipeline")
     pipeline_df = db.load_pipeline()
-    expected_cols = ["id", "event_name", "location", "event_date", "decision_tier", "gross_revenue", "total_expenses", "net_profit", "roi_text", "prep_dumplings", "status"]
     
-    # Ensure all expected columns exist even if sheet is brand new
-    for col in expected_cols:
-        if col not in pipeline_df.columns:
-            pipeline_df[col] = None
+    # EXACT 13 COLUMNS DEFINITION
+    column_map = {
+        "id": "ID",
+        "event_name": "Event Name",
+        "location": "Location",
+        "event_date": "Date",
+        "product_format": "Format",
+        "participation_status": "Status",
+        "decision_tier": "Tier",
+        "gross_revenue": "Gross Revenue ($)",
+        "total_expenses": "Total Costs ($)",
+        "net_profit": "Net Profit ($)",
+        "roi_text": "ROI",
+        "prep_dumplings": "Dumplings Target (pcs)",
+        "notes": "Notes"
+    }
+    
+    # Ensure every single key exists in the dataframe
+    for key in column_map.keys():
+        if key not in pipeline_df.columns:
+            pipeline_df[key] = ""
             
-    # Always display the table structure and headers
+    final_table = pipeline_df[list(column_map.keys())].copy()
+    final_table = final_table.rename(columns=column_map)
+    
+    st.caption(f"📊 Showing all {len(final_table.columns)} columns across operations and finances")
+    
+    # Render with responsive container width
     st.dataframe(
-        pipeline_df[expected_cols],
-        use_container_width=True, 
+        final_table,
+        use_container_width=True,
         hide_index=True
     )
     
-    if pipeline_df.empty or len(pipeline_df.dropna(how="all")) == 0:
-        st.caption("ℹ️ The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
-        st.markdown("---")
-        st.subheader("🔄 Update Event Status")
-        col_u1, col_u2, col_u3 = st.columns([2, 2, 1])
-        with col_u1:
-            selected_id = st.selectbox("Select Event ID to Update", pipeline_df["id"].tolist())
-        with col_u2:
-            new_stat = st.selectbox("Set New Status", ["Discovered", "Reviewing", "Applied", "Booked", "Declined"])
-        with col_u3:
-            st.write("")
-            st.write("")
-            if st.button("Update Status"):
-                db.update_event_status(selected_id, new_stat)
-                st.success(f"Event #{selected_id} updated to '{new_stat}'!")
-                st.rerun()
+    if len(pipeline_df.dropna(how="all")) == 0 or (pipeline_df["event_name"].astype(str).str.strip() == "").all():
+        st.info("ℹ️ The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
+        
+    st.markdown("---")
+    st.subheader("🔄 Update Event Status & Format")
+    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
+    with col_u1:
+        numeric_ids = pd.to_numeric(pipeline_df["id"], errors="coerce").dropna().astype(int).tolist()
+        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else [1])
+    with col_u2:
+        new_stat = st.selectbox("Participation Status", ["Already Participating", "Booked", "Applied", "Reviewing", "Discovered", "Completed", "Declined"])
+    with col_u3:
+        new_fmt = st.selectbox("Product Format", ["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"])
+    with col_u4:
+        st.write("")
+        st.write("")
+        if st.button("Update"):
+            db.update_event_status_and_format(selected_id, new_stat, new_fmt)
+            st.success(f"Event #{selected_id} updated!")
+            st.rerun()

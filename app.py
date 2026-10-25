@@ -168,7 +168,7 @@ with tab_pipeline:
     # Ensure all expected columns exist even if sheet is brand new
     for col in expected_cols:
         if col not in pipeline_df.columns:
-            pipeline_df[col] = []
+            pipeline_df[col] = None
             
     if pipeline_df.empty or len(pipeline_df.dropna(how="all")) == 0:
         st.info("The pipeline is currently empty. Add events via Tab 2!")

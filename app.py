@@ -433,10 +433,26 @@ with tab_pipeline:
 
     st.caption(f"📊 Showing all {len(final_table.columns)} columns • Dynamically recalculates live on sidebar slider changes")
     
+    # Enforce responsive columns that stretch to fill the screen width beautifully
     st.dataframe(
         final_table,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        column_config={
+            "ID": st.column_config.TextColumn(width="small"),
+            "Event Name": st.column_config.TextColumn(width="large"),
+            "Location": st.column_config.TextColumn(width="medium"),
+            "Date": st.column_config.TextColumn(width="medium"),
+            "Format": st.column_config.TextColumn(width="medium"),
+            "Status": st.column_config.TextColumn(width="medium"),
+            "Tier": st.column_config.TextColumn(width="medium"),
+            "Gross Revenue ($)": st.column_config.TextColumn(width="medium"),
+            "Total Costs ($)": st.column_config.TextColumn(width="medium"),
+            "Net Profit ($)": st.column_config.TextColumn(width="medium"),
+            "ROI": st.column_config.TextColumn(width="small"),
+            "Dumplings Target (pcs)": st.column_config.TextColumn(width="medium"),
+            "Notes": st.column_config.TextColumn(width="large")
+        }
     )
     
     if final_table.empty:

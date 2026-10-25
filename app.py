@@ -442,18 +442,18 @@ with tab_pipeline:
         hide_index=True,
         column_config={
             "ID": st.column_config.TextColumn(width="small"),
-            "Event Name": st.column_config.TextColumn(width="large"),
-            "Location": st.column_config.TextColumn(width="medium"),
-            "Date": st.column_config.TextColumn(width="medium"),
-            "Format": st.column_config.TextColumn(width="medium"),
-            "Status": st.column_config.TextColumn(width="medium"),
-            "Tier": st.column_config.TextColumn(width="medium"),
-            "Gross Revenue ($)": st.column_config.TextColumn(width="medium"),
-            "Total Costs ($)": st.column_config.TextColumn(width="medium"),
-            "Net Profit ($)": st.column_config.TextColumn(width="medium"),
+            "Event Name": st.column_config.TextColumn(width="large", disabled_wrap=False),
+            "Location": st.column_config.TextColumn(width="small"),
+            "Date": st.column_config.TextColumn(width="small"),
+            "Format": st.column_config.TextColumn(width="small"),
+            "Status": st.column_config.TextColumn(width="small"),
+            "Tier": st.column_config.TextColumn(width="small"),
+            "Gross Revenue ($)": st.column_config.TextColumn(width="small"),
+            "Total Costs ($)": st.column_config.TextColumn(width="small"),
+            "Net Profit ($)": st.column_config.TextColumn(width="small"),
             "ROI": st.column_config.TextColumn(width="small"),
-            "Dumplings Target (pcs)": st.column_config.TextColumn(width="medium"),
-            "Notes": st.column_config.TextColumn(width="large")
+            "Dumplings Target (pcs)": st.column_config.TextColumn(width="small"),
+            "Notes": st.column_config.TextColumn(width="large", disabled_wrap=False)
         }
     )
     

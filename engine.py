@@ -3,25 +3,33 @@ import math
 def calculate_dumpling_finances(event: dict, config: dict) -> dict:
     att = float(event.get("estimated_attendance", 500))
     category = str(event.get("category", "General")).lower()
-    event_name = str(event.get("event_name", "")).lower()
+    
+    # Standardize event name: lowercase, strip, and remove common punctuation
+    event_name = str(event.get("event_name", "")).lower().strip()
+    clean_name = event_name.replace("-", " ").replace("/", " ").replace("_", " ")
+    
     product_format = str(event.get("product_format", "Both Hot & Frozen"))
     operating_hours = max(1.0, float(event.get("operating_hours", 6.0)))
     fulfillment_time_target = float(config.get("fulfillment_time_target", 1.5))
     
-    # 1. SMART DEMOGRAPHIC & CONVERSION DETECTION
-    # Check both the category dropdown AND the event name itself!
-    is_dedicated_dietary = any(tag in event_name or tag in category for tag in [
-        "vegan", "plant-based", "plant based", "celiac", "gluten-free", "gluten free", "gf"
+    # 1. BROAD RESILIENT DIETARY DETECTION
+    # Catches shorthand (veg, vgn, cel) and typos
+    is_dedicated_dietary = any(tag in clean_name or tag in category for tag in [
+        "vegan", "veg", "vgn", "plant", "celiac", "gluten", "gf", "allergy", "allergic"
     ])
-    is_wellness = any(tag in event_name or tag in category for tag in ["wellness", "athletic", "5k", "yoga", "marathon"])
-    is_food_centric = any(tag in event_name for tag in ["night market", "market", "food fest", "street food", "taste of", "bites"])
+    is_wellness = any(tag in clean_name or tag in category for tag in [
+        "wellness", "athletic", "5k", "run", "race", "walk", "yoga", "marathon", "fitness", "triathlon"
+    ])
+    is_food_centric = any(tag in clean_name for tag in [
+        "market", "night market", "food", "fest", "street food", "taste of", "bites", "bazaar", "pop"
+    ])
 
     if is_dedicated_dietary:
-        # Everyone at a Vegan or Celiac event is your exact customer
+        # High concentration of prime customers
         demo_pct = 0.90
-        # If it's a food market (like Tucson Vegan Night Market), capture is high because people go there to eat dinner!
         capture_pct = 0.28 if is_food_centric else 0.22
     elif is_wellness:
+        # Active healthy customers
         demo_pct = 0.65
         capture_pct = 0.18
     else:  # General Mass Festival (e.g. Tucson Meet Yourself, 4th Ave Fair)

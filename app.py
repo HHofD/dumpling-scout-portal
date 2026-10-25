@@ -259,6 +259,7 @@ with tab_private:
                 
                 if action_data.get("action") == "add_event":
                     calc_input = {
+                        "event_name": action_data.get("event_name"),
                         "estimated_attendance": action_data.get("estimated_attendance", 800),
                         "category": action_data.get("category", "General Mass / Street Fair"),
                         "product_format": action_data.get("product_format", "Both Hot & Frozen"),
@@ -314,7 +315,6 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    # FIXED: Explicit [3, 1] spec layout
     col_s1, col_s2 = st.columns([3, 1])
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
@@ -372,7 +372,7 @@ with tab_private:
                         st.error(f"Auto-fill error: {err}")
 
     if st.session_state.prefill.get("is_ai"):
-        src_link = src_link = st.session_state.prefill.get("source_url", "")
+        src_link = st.session_state.prefill.get("source_url", "")
         src_text = f" [🔗 Open Source Webpage]({src_link})" if src_link else ""
         st.info(f"🤖 **AI Auto-Enriched Data**: {st.session_state.prefill.get('source_summary', '')}{src_text}\n\n*Highlighted fields below were extracted by Gemini. Adjust values as needed before saving.*")
 
@@ -400,6 +400,7 @@ with tab_private:
         submit_btn = st.form_submit_button("Run Financial Evaluation & Log to Pipeline")
         if submit_btn:
             calc_input = {
+                "event_name": e_name,
                 "estimated_attendance": e_att,
                 "category": e_cat,
                 "product_format": e_format,
@@ -450,6 +451,7 @@ with tab_pipeline:
                 
                 try:
                     recalc_input = {
+                        "event_name": ev_name,
                         "estimated_attendance": att_val,
                         "category": cat_val,
                         "product_format": fmt_val,
@@ -468,8 +470,9 @@ with tab_pipeline:
                     tier_str = live_fin['decision_tier']
                     tgt_str = f"{live_fin['prep_dumplings']:,}"
                     grid_str = f"{live_fin['required_griddles']} pcs"
-                except Exception:
-                    rev_str = str(row.get("gross_revenue", "$0.00"))
+                except Exception as e:
+                    # If recalculation fails, display the actual error message
+                    rev_str = f"Error: {e}"
                     cost_str = str(row.get("total_expenses", "$0.00"))
                     prof_str = str(row.get("net_profit", "$0.00"))
                     roi_str = str(row.get("roi_text", "0%"))

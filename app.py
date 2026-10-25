@@ -7,8 +7,6 @@ import json
 from google import genai
 from google.genai import types
 
-st.set_page_config(page_title="Huhu's Dumpling Scout Hub", layout="wide", page_icon="🥟")
-
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -38,7 +36,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns()
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -259,7 +257,7 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns([3, 1])
+    col_s1, col_s2 = st.columns()
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -389,7 +387,6 @@ with tab_pipeline:
         except Exception:
             return default
 
-    # Build fresh presentation rows - ZERO in-place .loc mutation to avoid pandas 3 dtype errors!
     display_rows = []
     if not pipeline_df.empty and "event_name" in pipeline_df.columns:
         for _, row in pipeline_df.iterrows():
@@ -426,7 +423,6 @@ with tab_pipeline:
     final_table = pd.DataFrame(display_rows)
     
     if final_table.empty:
-        # Define empty structure with all 13 columns cleanly
         final_table = pd.DataFrame(columns=[
             "ID", "Event Name", "Location", "Date", "Format", "Status",
             "Tier", "Gross Revenue ($)", "Total Costs ($)", "Net Profit ($)",
@@ -435,14 +431,14 @@ with tab_pipeline:
 
     st.caption(f"📊 Showing all {len(final_table.columns)} columns • Dynamically recalculates live on sidebar slider changes")
     
-    # Enforce responsive columns that stretch to fill the screen width beautifully
+    # 🧼 SECURED RENDER: Clean column_config WITHOUT the invalid "disabled_wrap" parameter!
     st.dataframe(
         final_table,
         use_container_width=True,
         hide_index=True,
         column_config={
             "ID": st.column_config.TextColumn(width="small"),
-            "Event Name": st.column_config.TextColumn(width="large", disabled_wrap=False),
+            "Event Name": st.column_config.TextColumn(width="medium"),
             "Location": st.column_config.TextColumn(width="small"),
             "Date": st.column_config.TextColumn(width="small"),
             "Format": st.column_config.TextColumn(width="small"),
@@ -453,7 +449,7 @@ with tab_pipeline:
             "Net Profit ($)": st.column_config.TextColumn(width="small"),
             "ROI": st.column_config.TextColumn(width="small"),
             "Dumplings Target (pcs)": st.column_config.TextColumn(width="small"),
-            "Notes": st.column_config.TextColumn(width="large", disabled_wrap=False)
+            "Notes": st.column_config.TextColumn(width="medium")
         }
     )
     
@@ -462,7 +458,7 @@ with tab_pipeline:
         
     st.markdown("---")
     st.subheader("🔄 Update Event Status & Format")
-    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
+    col_u1, col_u2, col_u3, col_u4 = st.columns()
     with col_u1:
         valid_ids = [r["ID"] for r in display_rows if r["ID"].strip()] if display_rows else ["1"]
         selected_id = st.selectbox("Select Event ID", valid_ids)

@@ -15,7 +15,7 @@ DEFAULT_SETTINGS = {
     "frozen_pack_price": 16.0,
     "ingredient_cogs": 0.42,
     "hourly_wage": 20.0,
-    "frozen_upsell_pct": 0.25,
+    "frozen_upsell_pct": 25.0,  # Expressed as percentage 0-100 for easy typing
     "fulfillment_time_target": 1.5
 }
 
@@ -27,26 +27,36 @@ def initialize_database():
 
 def load_settings():
     conn = get_gsheets_connection()
+    result = DEFAULT_SETTINGS.copy()
     try:
-        df = conn.read(worksheet="Settings", ttl="30s")
+        # ttl=0s ensures any manual changes in Google Sheets show up immediately on refresh
+        df = conn.read(worksheet="Settings", ttl="0s")
         if not df.empty and "setting_key" in df.columns and "setting_value" in df.columns:
-            settings_dict = dict(zip(df["setting_key"].astype(str), pd.to_numeric(df["setting_value"], errors="coerce")))
-            result = DEFAULT_SETTINGS.copy()
-            for k, v in settings_dict.items():
-                if k in result and pd.notna(v):
-                    result[k] = float(v)
-            return result
+            for _, r in df.iterrows():
+                k = str(r["setting_key"]).strip().lower()
+                v_raw = str(r["setting_value"]).replace("$", "").replace("%", "").replace(",", "").strip()
+                try:
+                    v = float(v_raw)
+                    # Match case-insensitively
+                    for def_k in result.keys():
+                        if def_k.lower() == k:
+                            # If frozen_upsell_pct was stored as decimal (0.25), convert to percentage (25.0) for display
+                            if def_k == "frozen_upsell_pct" and v <= 1.0 and v > 0:
+                                v = v * 100.0
+                            result[def_k] = v
+                except Exception:
+                    continue
     except Exception:
         pass
-    return DEFAULT_SETTINGS.copy()
+    return result
 
 def save_settings(new_settings: dict):
     conn = get_gsheets_connection()
     try:
-        df = pd.DataFrame([
-            {"setting_key": k, "setting_value": float(v)}
-            for k, v in new_settings.items()
-        ])
+        rows = []
+        for k, v in new_settings.items():
+            rows.append({"setting_key": str(k), "setting_value": float(v)})
+        df = pd.DataFrame(rows)
         conn.update(worksheet="Settings", data=df)
         st.cache_data.clear()
         return True

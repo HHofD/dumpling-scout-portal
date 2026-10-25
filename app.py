@@ -163,11 +163,18 @@ with tab_private:
 with tab_pipeline:
     st.subheader("📋 Active Opportunities Pipeline")
     pipeline_df = db.load_pipeline()
-    if pipeline_df.empty:
-        st.info("The pipeline is currently empty. Add events via Tab 2.")
+    expected_cols = ["id", "event_name", "location", "event_date", "decision_tier", "gross_revenue", "total_expenses", "net_profit", "roi_text", "prep_dumplings", "status"]
+    
+    # Ensure all expected columns exist even if sheet is brand new
+    for col in expected_cols:
+        if col not in pipeline_df.columns:
+            pipeline_df[col] = []
+            
+    if pipeline_df.empty or len(pipeline_df.dropna(how="all")) == 0:
+        st.info("The pipeline is currently empty. Add events via Tab 2!")
     else:
         st.dataframe(
-            pipeline_df[["id", "event_name", "location", "event_date", "decision_tier", "gross_revenue", "total_expenses", "net_profit", "roi_text", "prep_dumplings", "status"]],
+            pipeline_df[expected_cols],
             use_container_width=True, hide_index=True
         )
         st.markdown("---")

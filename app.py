@@ -87,7 +87,6 @@ if st.sidebar.button("Log Out"):
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Operational Economics")
 
-# All inputs are now direct type-in number boxes (no sliders)
 val_price = st.sidebar.number_input(
     "Average Menu Item Price ($)",
     value=float(saved_settings.get("item_menu_price", 12.0)),
@@ -110,7 +109,6 @@ val_wage = st.sidebar.number_input(
     value=float(saved_settings.get("hourly_wage", 20.0)),
     step=1.0
 )
-# Type-in box for Frozen Sales % (enter e.g. 25.0 for 25%)
 val_frozen_pct_input = st.sidebar.number_input(
     "Frozen Sales % at Mixed Events (%)",
     min_value=0.0,
@@ -119,7 +117,6 @@ val_frozen_pct_input = st.sidebar.number_input(
     step=5.0,
     help="Type e.g. 25 for 25% of customers buying frozen packs at 'Both Hot & Frozen' events"
 )
-# Type-in box for Fulfillment Time Target in minutes
 val_fulfillment = st.sidebar.number_input(
     "Fulfillment Time Target (min/order)",
     min_value=0.2,
@@ -130,7 +127,6 @@ val_fulfillment = st.sidebar.number_input(
     help="Desired checkout-to-handout window. App calculates required griddles."
 )
 
-# Convert percentage (0-100) to decimal (0.0-1.0) for the financial engine
 config = {
     "item_menu_price": val_price,
     "frozen_pack_price": val_frozen,
@@ -140,7 +136,6 @@ config = {
     "fulfillment_time_target": val_fulfillment
 }
 
-# Settings dictionary to persist back to Google Sheets (keeps frozen % as typed 0-100)
 save_payload = {
     "item_menu_price": val_price,
     "frozen_pack_price": val_frozen,
@@ -506,48 +501,51 @@ with tab_pipeline:
             "Tier", "Revenue", "Costs", "Profit", "ROI", "Target (pcs)", "Notes"
         ])
 
-    st.caption("📊 Showing all columns responsively across screen width")
+    st.caption("📊 Showing all columns responsively across screen width • Double-click any cell below to edit in-line!")
     
-    st.dataframe(
+    # UPGRADED: st.data_editor makes the entire table fully interactive and editable on-screen!
+    edited_df = st.data_editor(
         final_table,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "ID": st.column_config.TextColumn(width="small"),
+            "ID": st.column_config.TextColumn(width="small", disabled=True),
             "Event Name": st.column_config.TextColumn(width="medium"),
             "Location": st.column_config.TextColumn(width="small"),
             "Date": st.column_config.TextColumn(width="small"),
             "Crowd": st.column_config.TextColumn(width="small"),
-            "Griddles": st.column_config.TextColumn(width="small"),
-            "Format": st.column_config.TextColumn(width="small"),
-            "Status": st.column_config.TextColumn(width="small"),
-            "Tier": st.column_config.TextColumn(width="small"),
-            "Revenue": st.column_config.TextColumn(width="small"),
-            "Costs": st.column_config.TextColumn(width="small"),
-            "Profit": st.column_config.TextColumn(width="small"),
-            "ROI": st.column_config.TextColumn(width="small"),
-            "Target (pcs)": st.column_config.TextColumn(width="small"),
+            "Griddles": st.column_config.TextColumn(width="small", disabled=True),
+            "Format": st.column_config.SelectboxColumn(width="small", options=["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"]),
+            "Status": st.column_config.SelectboxColumn(width="small", options=["Discovered", "Already Participating", "Booked", "Applied", "Reviewing", "Completed", "Declined"]),
+            "Tier": st.column_config.TextColumn(width="small", disabled=True),
+            "Revenue": st.column_config.TextColumn(width="small", disabled=True),
+            "Costs": st.column_config.TextColumn(width="small", disabled=True),
+            "Profit": st.column_config.TextColumn(width="small", disabled=True),
+            "ROI": st.column_config.TextColumn(width="small", disabled=True),
+            "Target (pcs)": st.column_config.TextColumn(width="small", disabled=True),
             "Notes": st.column_config.TextColumn(width="medium")
-        }
+        },
+        key="pipeline_editor"
     )
+    
+    # Detect in-line edits and write back to Google Sheets automatically
+    if st.session_state.get("pipeline_editor") and "edited_rows" in st.session_state.pipeline_editor:
+        changes = st.session_state.pipeline_editor["edited_rows"]
+        if changes:
+            for row_idx, updated_cols in changes.items():
+                try:
+                    # Retrieve the un-edited Event ID from the selected row index
+                    target_id = int(final_table.iloc[int(row_idx)]["ID"])
+                    # Default values from the selected edited row
+                    new_status_val = updated_cols.get("Status", final_table.iloc[int(row_idx)]["Status"])
+                    new_format_val = updated_cols.get("Format", final_table.iloc[int(row_idx)]["Format"])
+                    
+                    # Update status, format, and recalculate on the fly!
+                    db.update_event_status_and_format(target_id, new_status_val, new_format_val)
+                    st.success(f"Successfully saved edits for Event #{target_id} directly to Google Sheets!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Failed to save in-line edits: {err}")
     
     if final_table.empty:
         st.info("The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
-        
-    st.markdown("---")
-    st.subheader("🔄 Update Event Status & Format")
-    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
-    with col_u1:
-        valid_ids = [r["ID"] for r in display_rows if r["ID"].strip()] if display_rows else ["1"]
-        selected_id = st.selectbox("Select Event ID", valid_ids)
-    with col_u2:
-        new_stat = st.selectbox("Participation Status", ["Already Participating", "Booked", "Applied", "Reviewing", "Discovered", "Completed", "Declined"])
-    with col_u3:
-        new_fmt = st.selectbox("Product Format", ["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"])
-    with col_u4:
-        st.write("")
-        st.write("")
-        if st.button("Update"):
-            db.update_event_status_and_format(selected_id, new_stat, new_fmt)
-            st.success(f"Event #{selected_id} updated!")
-            st.rerun()

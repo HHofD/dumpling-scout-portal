@@ -11,7 +11,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns()
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -127,7 +127,7 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns()
+    col_s1, col_s2 = st.columns([3, 1])
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -232,7 +232,7 @@ with tab_private:
                 "total_expenses": results["total_expenses"], "net_profit": results["net_profit"],
                 "roi_text": results["roi_text"], "decision_tier": results["decision_tier"],
                 "prep_dumplings": results["prep_dumplings"],
-                "notes": f"Added by {current_user} ({e_griddles} griddles) | Src: " + st.session_state.prefill.get("source_url", "Manual")
+                "notes": f"Added by {current_user} ({e_griddles} griddles) | Deadline: {e_deadline} | Src: " + st.session_state.prefill.get("source_url", "Manual")
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
@@ -276,10 +276,10 @@ with tab_pipeline:
         
     st.markdown("---")
     st.subheader("🔄 Update Event Status & Format")
-    col_u1, col_u2, col_u3, col_u4 = st.columns()
+    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
     with col_u1:
         numeric_ids = pd.to_numeric(pipeline_df["id"], errors="coerce").dropna().astype(int).tolist()
-        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else)
+        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else [1])
     with col_u2:
         new_stat = st.selectbox("Participation Status", ["Already Participating", "Booked", "Applied", "Reviewing", "Discovered", "Completed", "Declined"])
     with col_u3:

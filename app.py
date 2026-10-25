@@ -170,13 +170,15 @@ with tab_pipeline:
         if col not in pipeline_df.columns:
             pipeline_df[col] = None
             
+    # Always display the table structure and headers
+    st.dataframe(
+        pipeline_df[expected_cols],
+        use_container_width=True, 
+        hide_index=True
+    )
+    
     if pipeline_df.empty or len(pipeline_df.dropna(how="all")) == 0:
-        st.info("The pipeline is currently empty. Add events via Tab 2!")
-    else:
-        st.dataframe(
-            pipeline_df[expected_cols],
-            use_container_width=True, hide_index=True
-        )
+        st.caption("ℹ️ The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
         st.markdown("---")
         st.subheader("🔄 Update Event Status")
         col_u1, col_u2, col_u3 = st.columns([2, 2, 1])

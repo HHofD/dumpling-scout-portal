@@ -48,16 +48,15 @@ if st.sidebar.button("Log Out"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("💰 Unit Economics & Assumptions")
+st.sidebar.subheader("💰 Operational Economics")
 config = {
-    "hot_plate_price": st.sidebar.number_input("Hot Plate Menu Price ($)", value=13.0, step=0.5),
+    "item_menu_price": st.sidebar.number_input("Average Menu Item Price ($)", value=12.0, step=0.5, help="Average price per 4-dumpling serving"),
     "frozen_pack_price": st.sidebar.number_input("Frozen 4-Pack Price ($)", value=16.0, step=0.5),
-    "ingredient_cogs": st.sidebar.number_input("Ingredient Cost / Dumpling ($)", value=0.42, step=0.01),
-    "prep_labor_cogs": st.sidebar.number_input("Prep Labor / Dumpling ($)", value=0.18, step=0.01),
-    "hourly_wage": st.sidebar.number_input("Staff Hourly Wage ($)", value=20.0, step=1.0),
-    "max_plates_per_hour": st.sidebar.slider("Max Steamer Output (Plates/Hr)", 20, 90, 55),
-    "frozen_upsell_pct": st.sidebar.slider("Frozen Take-Home Upsell %", 0.0, 0.5, 0.25)
+    "ingredient_cogs": st.sidebar.number_input("Raw Ingredient Cost / Dumpling ($)", value=0.42, step=0.01),
+    "hourly_wage": st.sidebar.number_input("Staff Hourly Wage ($)", value=20.0, step=1.0)
 }
+
+st.sidebar.caption("🍳 Griddle throughput rule: 24 dumplings / griddle every 12 mins (120 pcs/hr). 1 cook manages 2-3 griddles.")
 
 tab_shared, tab_private, tab_pipeline = st.tabs([
     "👥 Shared Team Board", 
@@ -125,6 +124,7 @@ with tab_private:
             e_name = st.text_input("Event Name", value="Scottsdale Celiac 5K + Treat")
             e_loc = st.text_input("Location", value="Scottsdale, AZ")
             e_date = st.text_input("Date", value="2026-11-01")
+            e_griddles = st.number_input("Number of Griddles in Setup", min_value=1, max_value=6, value=2, step=1, help="Max 24 pcs / 12 min per griddle")
         with col_b:
             e_dist = st.number_input("Distance from Tucson (miles)", value=115.0, step=5.0)
             e_att = st.number_input("Estimated Attendance", value=800, step=50)
@@ -143,6 +143,7 @@ with tab_private:
                 "category": e_cat,
                 "product_format": e_format,
                 "operating_hours": e_hours,
+                "num_griddles": e_griddles,
                 "distance_from_tucson_miles": e_dist,
                 "location": e_loc,
                 "vendor_fee_usd": e_fee,
@@ -155,7 +156,7 @@ with tab_private:
                 "est_attendance": e_att, "gross_revenue": results["gross_revenue"],
                 "total_expenses": results["total_expenses"], "net_profit": results["net_profit"],
                 "roi_text": results["roi_text"], "decision_tier": results["decision_tier"],
-                "prep_dumplings": results["prep_dumplings"], "notes": f"Added by {current_user}"
+                "prep_dumplings": results["prep_dumplings"], "notes": f"Added by {current_user} ({e_griddles} griddles)"
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
@@ -163,7 +164,6 @@ with tab_pipeline:
     st.subheader("📋 Active Opportunities Pipeline")
     pipeline_df = db.load_pipeline()
     
-    # EXACT 13 COLUMNS DEFINITION
     column_map = {
         "id": "ID",
         "event_name": "Event Name",
@@ -180,7 +180,6 @@ with tab_pipeline:
         "notes": "Notes"
     }
     
-    # Ensure every single key exists in the dataframe
     for key in column_map.keys():
         if key not in pipeline_df.columns:
             pipeline_df[key] = ""
@@ -190,7 +189,6 @@ with tab_pipeline:
     
     st.caption(f"📊 Showing all {len(final_table.columns)} columns across operations and finances")
     
-    # Render with responsive container width
     st.dataframe(
         final_table,
         use_container_width=True,

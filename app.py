@@ -3,6 +3,17 @@ import pandas as pd
 from google import genai
 from google.genai import types
 
+def get_gemini_api_key():
+    key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+    if key and str(key).strip():
+        return str(key).strip()
+    for section in ["users", "connections"]:
+        if section in st.secrets and isinstance(st.secrets[section], dict):
+            if "GEMINI_API_KEY" in st.secrets[section]:
+                return str(st.secrets[section]["GEMINI_API_KEY"]).strip()
+    st.error("⚠️ Gemini API Key missing from Secrets config.")
+    return ""
+
 def authenticate_user():
     if "authenticated_user" in st.session_state and st.session_state.authenticated_user:
         return st.session_state.authenticated_user
@@ -96,7 +107,8 @@ with tab_private:
     ai_input = st.chat_input("Ask about an event, festival, or date...", key="ai_scout_input")
     if ai_input:
         db.save_private_message(current_user, "user", ai_input)
-        client = genai.Client(api_key=st.secrets.get("GEMINI_API_KEY", ""))
+        api_k = get_gemini_api_key()
+        client = genai.Client(api_key=api_k)
         prompt = f"""
         You are an event scouting and evaluation assistant for Huhu's House of Dumplings.
         The business offers all-natural, gluten-free, and plant-based/vegan Chinese dumplings based in Tucson, AZ.
@@ -107,7 +119,7 @@ with tab_private:
         Provide a concise evaluation and a clear recommendation.
         """
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())]
@@ -136,7 +148,8 @@ with tab_private:
         if st.button("🔍 Auto-Fill with AI", use_container_width=True):
             if quick_query:
                 with st.spinner("Gemini is searching web records for event details and sources..."):
-                    client = genai.Client(api_key=st.secrets.get("GEMINI_API_KEY", ""))
+                    api_k = get_gemini_api_key()
+                    client = genai.Client(api_key=api_k)
                     enrich_prompt = f"""
                     Search the web for event details for: '{quick_query}'.
                     The user runs Huhu's House of Dumplings (gluten-free, vegan food company based in Tucson, AZ).
@@ -157,7 +170,7 @@ with tab_private:
                     try:
                         import json
                         res = client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-3.8-flash',
                             contents=enrich_prompt,
                             config=types.GenerateContentConfig(
                                 response_mime_type="application/json",

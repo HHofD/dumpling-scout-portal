@@ -36,7 +36,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns()
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -194,7 +194,7 @@ with tab_private:
         
         if "```action_json" in raw_reply:
             try:
-                json_part = raw_reply.split("```action_json")[1].split("```")[0].strip()
+                json_part = raw_reply.split("```action_json").split("```")[0].strip()
                 action_data = json.loads(json_part)
                 clean_reply = raw_reply.split("```action_json")[0].strip()
                 
@@ -257,7 +257,7 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns([3, 1])
+    col_s1, col_s2 = st.columns()
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -371,7 +371,6 @@ with tab_pipeline:
     st.subheader("📋 Active Opportunities Pipeline")
     pipeline_df = db.load_pipeline()
     
-    # LIVE RECALCULATION: Robust parsing that guarantees live updates on sidebar changes
     def safe_float(val, default):
         try:
             if pd.isna(val) or val is None or str(val).strip() == "":
@@ -388,8 +387,10 @@ with tab_pipeline:
         except Exception:
             return default
 
+    # Build fresh presentation rows - ZERO in-place .loc mutation to avoid pandas 3 dtype errors!
+    display_rows = []
     if not pipeline_df.empty and "event_name" in pipeline_df.columns:
-        for idx, row in pipeline_df.iterrows():
+        for _, row in pipeline_df.iterrows():
             ev_name = str(row.get("event_name", "")).strip()
             if ev_name:
                 recalc_input = {
@@ -404,37 +405,33 @@ with tab_pipeline:
                     "power_available": True if str(row.get("power_available", "True")).lower() in ["true", "1", "yes"] else False
                 }
                 live_fin = calculate_dumpling_finances(recalc_input, config)
-                pipeline_df.loc[idx, "gross_revenue"] = f"${live_fin['gross_revenue']:,.2f}"
-                pipeline_df.loc[idx, "total_expenses"] = f"${live_fin['total_expenses']:,.2f}"
-                pipeline_df.loc[idx, "net_profit"] = f"${live_fin['net_profit']:,.2f}"
-                pipeline_df.loc[idx, "roi_text"] = live_fin["roi_text"]
-                pipeline_df.loc[idx, "decision_tier"] = live_fin["decision_tier"]
-                pipeline_df.loc[idx, "prep_dumplings"] = f"{live_fin['prep_dumplings']:,} pcs"
+                display_rows.append({
+                    "ID": str(row.get("id", "")),
+                    "Event Name": ev_name,
+                    "Location": str(row.get("location", "")),
+                    "Date": str(row.get("event_date", "")),
+                    "Format": str(row.get("product_format", "Both Hot & Frozen")),
+                    "Status": str(row.get("participation_status", "Discovered")),
+                    "Tier": live_fin["decision_tier"],
+                    "Gross Revenue ($)": f"${live_fin['gross_revenue']:,.2f}",
+                    "Total Costs ($)": f"${live_fin['total_expenses']:,.2f}",
+                    "Net Profit ($)": f"${live_fin['net_profit']:,.2f}",
+                    "ROI": live_fin["roi_text"],
+                    "Dumplings Target (pcs)": f"{live_fin['prep_dumplings']:,} pcs",
+                    "Notes": str(row.get("notes", ""))
+                })
+
+    final_table = pd.DataFrame(display_rows)
     
-    column_map = {
-        "id": "ID",
-        "event_name": "Event Name",
-        "location": "Location",
-        "event_date": "Date",
-        "product_format": "Format",
-        "participation_status": "Status",
-        "decision_tier": "Tier",
-        "gross_revenue": "Gross Revenue ($)",
-        "total_expenses": "Total Costs ($)",
-        "net_profit": "Net Profit ($)",
-        "roi_text": "ROI",
-        "prep_dumplings": "Dumplings Target (pcs)",
-        "notes": "Notes"
-    }
-    
-    for key in column_map.keys():
-        if key not in pipeline_df.columns:
-            pipeline_df[key] = ""
-            
-    final_table = pipeline_df[list(column_map.keys())].copy()
-    final_table = final_table.rename(columns=column_map)
-    
-    st.caption(f"📊 Showing all {len(final_table.columns)} columns • Values dynamically recalculate based on sidebar economics")
+    if final_table.empty:
+        # Define empty structure with all 13 columns cleanly
+        final_table = pd.DataFrame(columns=[
+            "ID", "Event Name", "Location", "Date", "Format", "Status",
+            "Tier", "Gross Revenue ($)", "Total Costs ($)", "Net Profit ($)",
+            "ROI", "Dumplings Target (pcs)", "Notes"
+        ])
+
+    st.caption(f"📊 Showing all {len(final_table.columns)} columns • Dynamically recalculates live on sidebar slider changes")
     
     st.dataframe(
         final_table,
@@ -442,15 +439,15 @@ with tab_pipeline:
         hide_index=True
     )
     
-    if len(pipeline_df.dropna(how="all")) == 0 or (pipeline_df["event_name"].astype(str).str.strip() == "").all():
+    if final_table.empty:
         st.info("ℹ️ The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
         
     st.markdown("---")
     st.subheader("🔄 Update Event Status & Format")
-    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
+    col_u1, col_u2, col_u3, col_u4 = st.columns()
     with col_u1:
-        numeric_ids = pd.to_numeric(pipeline_df["id"], errors="coerce").dropna().astype(int).tolist()
-        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else [1])
+        valid_ids = [r["ID"] for r in display_rows if r["ID"].strip()] if display_rows else ["1"]
+        selected_id = st.selectbox("Select Event ID", valid_ids)
     with col_u2:
         new_stat = st.selectbox("Participation Status", ["Already Participating", "Booked", "Applied", "Reviewing", "Discovered", "Completed", "Declined"])
     with col_u3:

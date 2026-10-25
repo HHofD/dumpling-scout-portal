@@ -27,7 +27,6 @@ def authenticate_user():
     if "authenticated_user" in st.session_state and st.session_state.authenticated_user:
         return st.session_state.authenticated_user
 
-    # Attempt to read the browser cookie
     saved_user = cookie_manager.get("huhu_auth_user")
     if saved_user:
         st.session_state.authenticated_user = saved_user
@@ -37,7 +36,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns()
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -53,12 +52,8 @@ def authenticate_user():
             if username_input in users_db and password_input == users_db[username_input]:
                 display_name = username_input.capitalize()
                 st.session_state.authenticated_user = display_name
-                
-                # Save cookie with 1-day expiration
                 expires = datetime.datetime.now() + datetime.timedelta(days=1)
                 cookie_manager.set("huhu_auth_user", display_name, expires_at=expires)
-                
-                # 🛑 CRITICAL: Wait 0.2 seconds to allow browser JS to write the cookie to disk before reloading!
                 time.sleep(0.2)
                 st.rerun()
             else:
@@ -79,7 +74,7 @@ st.sidebar.title(f"👤 Logged in as: {current_user}")
 if st.sidebar.button("Log Out"):
     cookie_mgr = stx.CookieManager()
     cookie_mgr.delete("huhu_auth_user")
-    time.sleep(0.2) # Let browser delete cookie
+    time.sleep(0.2)
     st.session_state.authenticated_user = None
     st.rerun()
 
@@ -199,7 +194,7 @@ with tab_private:
         
         if "```action_json" in raw_reply:
             try:
-                json_part = raw_reply.split("```action_json").split("```")[0].strip()
+                json_part = raw_reply.split("```action_json")[1].split("```")[0].strip()
                 action_data = json.loads(json_part)
                 clean_reply = raw_reply.split("```action_json")[0].strip()
                 
@@ -224,6 +219,11 @@ with tab_private:
                         "product_format": action_data.get("product_format"),
                         "participation_status": action_data.get("participation_status", "Discovered"),
                         "est_attendance": action_data.get("estimated_attendance"),
+                        "operating_hours": action_data.get("operating_hours", 6.0),
+                        "num_griddles": action_data.get("num_griddles", 2),
+                        "distance_from_tucson_miles": action_data.get("distance_from_tucson_miles", 100.0),
+                        "vendor_fee_usd": action_data.get("vendor_fee_usd", 150.0),
+                        "power_available": action_data.get("power_available", True),
                         "gross_revenue": finances["gross_revenue"],
                         "total_expenses": finances["total_expenses"],
                         "net_profit": finances["net_profit"],
@@ -257,7 +257,7 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns()
+    col_s1, col_s2 = st.columns([3, 1])
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -286,7 +286,6 @@ with tab_private:
                     - source_summary (1-sentence summary of where data was verified, e.g. 'Found on official municipal arts festival vendor guide')
                     """
                     try:
-                        import json
                         res = client.models.generate_content(
                             model='gemini-3.8-flash',
                             contents=enrich_prompt,
@@ -359,10 +358,11 @@ with tab_private:
             db.add_event_to_pipeline({
                 "event_name": e_name, "location": e_loc, "event_date": e_date,
                 "category": e_cat, "product_format": e_format, "participation_status": e_status,
-                "est_attendance": e_att, "gross_revenue": results["gross_revenue"],
-                "total_expenses": results["total_expenses"], "net_profit": results["net_profit"],
-                "roi_text": results["roi_text"], "decision_tier": results["decision_tier"],
-                "prep_dumplings": results["prep_dumplings"],
+                "est_attendance": e_att, "operating_hours": e_hours, "num_griddles": e_griddles,
+                "distance_from_tucson_miles": e_dist, "vendor_fee_usd": e_fee, "power_available": e_power,
+                "gross_revenue": results["gross_revenue"], "total_expenses": results["total_expenses"],
+                "net_profit": results["net_profit"], "roi_text": results["roi_text"],
+                "decision_tier": results["decision_tier"], "prep_dumplings": results["prep_dumplings"],
                 "notes": f"Added by {current_user} ({e_griddles} griddles) | Deadline: {e_deadline} | Src: " + st.session_state.prefill.get("source_url", "Manual")
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
@@ -370,6 +370,46 @@ with tab_private:
 with tab_pipeline:
     st.subheader("📋 Active Opportunities Pipeline")
     pipeline_df = db.load_pipeline()
+    
+    # LIVE RECALCULATION: Robust parsing that guarantees live updates on sidebar changes
+    def safe_float(val, default):
+        try:
+            if pd.isna(val) or val is None or str(val).strip() == "":
+                return default
+            return float(str(val).replace("$", "").replace(",", "").strip())
+        except Exception:
+            return default
+
+    def safe_int(val, default):
+        try:
+            if pd.isna(val) or val is None or str(val).strip() == "":
+                return default
+            return int(float(str(val).replace(",", "").strip()))
+        except Exception:
+            return default
+
+    if not pipeline_df.empty and "event_name" in pipeline_df.columns:
+        for idx, row in pipeline_df.iterrows():
+            ev_name = str(row.get("event_name", "")).strip()
+            if ev_name:
+                recalc_input = {
+                    "estimated_attendance": safe_float(row.get("estimated_attendance"), 800.0),
+                    "category": str(row.get("category") or "General Mass / Street Fair"),
+                    "product_format": str(row.get("product_format") or "Both Hot & Frozen"),
+                    "operating_hours": safe_float(row.get("operating_hours"), 6.0),
+                    "num_griddles": safe_int(row.get("num_griddles"), 2),
+                    "distance_from_tucson_miles": safe_float(row.get("distance_from_tucson_miles"), 100.0),
+                    "location": str(row.get("location") or "Arizona"),
+                    "vendor_fee_usd": safe_float(row.get("vendor_fee_usd"), 150.0),
+                    "power_available": True if str(row.get("power_available", "True")).lower() in ["true", "1", "yes"] else False
+                }
+                live_fin = calculate_dumpling_finances(recalc_input, config)
+                pipeline_df.loc[idx, "gross_revenue"] = f"${live_fin['gross_revenue']:,.2f}"
+                pipeline_df.loc[idx, "total_expenses"] = f"${live_fin['total_expenses']:,.2f}"
+                pipeline_df.loc[idx, "net_profit"] = f"${live_fin['net_profit']:,.2f}"
+                pipeline_df.loc[idx, "roi_text"] = live_fin["roi_text"]
+                pipeline_df.loc[idx, "decision_tier"] = live_fin["decision_tier"]
+                pipeline_df.loc[idx, "prep_dumplings"] = f"{live_fin['prep_dumplings']:,} pcs"
     
     column_map = {
         "id": "ID",
@@ -394,7 +434,7 @@ with tab_pipeline:
     final_table = pipeline_df[list(column_map.keys())].copy()
     final_table = final_table.rename(columns=column_map)
     
-    st.caption(f"📊 Showing all {len(final_table.columns)} columns across operations and finances")
+    st.caption(f"📊 Showing all {len(final_table.columns)} columns • Values dynamically recalculate based on sidebar economics")
     
     st.dataframe(
         final_table,
@@ -407,10 +447,10 @@ with tab_pipeline:
         
     st.markdown("---")
     st.subheader("🔄 Update Event Status & Format")
-    col_u1, col_u2, col_u3, col_u4 = st.columns()
+    col_u1, col_u2, col_u3, col_u4 = st.columns([2, 2, 2, 1])
     with col_u1:
         numeric_ids = pd.to_numeric(pipeline_df["id"], errors="coerce").dropna().astype(int).tolist()
-        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else)
+        selected_id = st.selectbox("Select Event ID", numeric_ids if numeric_ids else [1])
     with col_u2:
         new_stat = st.selectbox("Participation Status", ["Already Participating", "Booked", "Applied", "Reviewing", "Discovered", "Completed", "Declined"])
     with col_u3:

@@ -3,46 +3,53 @@ import pandas as pd
 from google import genai
 from google.genai import types
 
-# --- PASSWORD GATE (MUST BE AT THE VERY TOP OF THE FILE) ---
-def check_password():
-    """Returns True if the user enters the correct security credentials."""
-    if "password_correct" not in st.session_state:
-        st.session_state.password_correct = False
-        
-    if st.session_state.password_correct:
-        return True
+# --- 1. USER AUTHENTICATION GATE ---
+def authenticate_user():
+    if "authenticated_user" in st.session_state and st.session_state.authenticated_user:
+        return st.session_state.authenticated_user
 
-    # Render a clean, standalone login page
     st.markdown("<h1 style='text-align: center; color: #E74C3C;'>🥟 Huhu's Command Portal</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
-    
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        password = st.text_input("Enter Team Workspace Password", type="password")
-        # Matches against the encrypted Streamlit Secrets environment variable
-        correct_pw = st.secrets.get("WORKSPACE_PASSWORD", "Dumps2026")
-        
-        if password == correct_pw:
-            st.session_state.password_correct = True
-            st.rerun()
-        elif password:
-            st.error("Incorrect security credentials. Please try again.")
-            
-    return False
+        username_input = st.text_input("Username").strip().lower()
+        password_input = st.text_input("Password", type="password").strip()
+        login_btn = st.button("Log In", use_container_width=True)
 
-if not check_password():
-    st.stop() # 🛑 Stops execution immediately if wrong password
+        if login_btn:
+            default_users = {
+                "andrew": "AndrewDumplings2026",
+                "whitney": "WhitneyDumplings2026"
+            }
+            users_db = st.secrets.get("users", default_users)
+
+            if username_input in users_db and password_input == users_db[username_input]:
+                display_name = username_input.capitalize()
+                st.session_state.authenticated_user = display_name
+                st.rerun()
+            else:
+                st.error("Invalid username or password. Please try again.")
+
+    return None
+
+current_user = authenticate_user()
+if not current_user:
+    st.stop()
 
 # ====================================================================
-# SECURED APP CODE (Only runs after entering correct password)
+# SECURE WORKSPACE
 # ====================================================================
 import database as db
 from engine import calculate_dumpling_finances
 
 db.initialize_database()
 
-st.sidebar.title("🥟 Huhu's Command Portal")
-current_user = st.sidebar.selectbox("Active Team Member Profile", ["Andrew", "Whitney"])
+st.sidebar.title(f"👤 Logged in as: {current_user}")
+if st.sidebar.button("Log Out"):
+    st.session_state.authenticated_user = None
+    st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Unit Economics & Assumptions")
@@ -56,20 +63,15 @@ config = {
     "frozen_upsell_pct": st.sidebar.slider("Frozen Take-Home Upsell %", 0.0, 0.5, 0.25)
 }
 
-st.sidebar.markdown("---")
-st.sidebar.caption("All adjustments automatically recalculate downstream profit margins.")
-
 tab_shared, tab_private, tab_pipeline = st.tabs([
     "👥 Shared Team Board", 
     "🤫 My Private AI Scout", 
     "📊 Opportunities Pipeline"
 ])
 
-# --- TAB 1: SHARED TEAM BOARD ---
 with tab_shared:
     st.subheader("💬 Team Collaboration Lounge")
     st.caption("Shared workspace for Andrew and Whitney to coordinate dates and batch schedules.")
-    
     team_df = db.load_team_messages()
     chat_box = st.container(height=380)
     with chat_box:
@@ -84,16 +86,14 @@ with tab_shared:
         db.save_team_message(current_user, team_input)
         st.rerun()
 
-# --- TAB 2: PRIVATE AI SCOUT ---
 with tab_private:
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
-    st.caption(f"Your private scratchpad. Conversations here are strictly confidential to {current_user}.")
-    
+    st.caption("Your private scratchpad. Conversations here are strictly confidential.")
     private_df = db.load_private_messages(current_user)
     ai_box = st.container(height=380)
     with ai_box:
         if private_df.empty:
-            st.info("Ask Gemini to research any event, city, athletic race, or paste a URL to analyze.")
+            st.info(f"Welcome {current_user}! Ask Gemini to research any event, city, athletic race, or paste a URL to analyze.")
         for _, row in private_df.iterrows():
             with st.chat_message(row["role"]):
                 st.write(row["message"])
@@ -101,8 +101,6 @@ with tab_private:
     ai_input = st.chat_input("Ask about an event, festival, or date...", key="ai_scout_input")
     if ai_input:
         db.save_private_message(current_user, "user", ai_input)
-        
-        # Grounded Gemini Execution
         client = genai.Client(api_key=st.secrets.get("GEMINI_API_KEY", ""))
         prompt = f"""
         You are an event scouting and evaluation assistant for Huhu's House of Dumplings.
@@ -141,7 +139,6 @@ with tab_private:
             e_power = st.checkbox("Power & Water Provided", value=False)
             
         submit_btn = st.form_submit_button("Run Financial Evaluation & Log to Pipeline")
-        
         if submit_btn:
             calc_input = {
                 "estimated_attendance": e_att,
@@ -153,7 +150,6 @@ with tab_private:
                 "power_available": e_power
             }
             results = calculate_dumpling_finances(calc_input, config)
-            
             db.add_event_to_pipeline({
                 "event_name": e_name, "location": e_loc, "event_date": e_date,
                 "category": e_cat, "est_attendance": e_att, "gross_revenue": results["gross_revenue"],
@@ -164,7 +160,6 @@ with tab_private:
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
-# --- TAB 3: PIPELINE & ACTION TRACKER ---
 with tab_pipeline:
     st.subheader("📋 Active Opportunities Pipeline")
     pipeline_df = db.load_pipeline()

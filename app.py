@@ -39,7 +39,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns()
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -151,13 +151,28 @@ if st.sidebar.button("💾 Save Settings Permanently", use_container_width=True)
 
 st.sidebar.caption("🍳 Griddle math: 24 dumplings / griddle every 12 mins. 1 cook handles up to 3 griddles; 4+ griddles requires 2 cooks.")
 
-tab_shared, tab_private, tab_pipeline = st.tabs([
+# =====================================================================
+# PERSISTENT HORIZONTAL NAVIGATION (Prevents resetting to Tab 1 on rerun!)
+# =====================================================================
+nav_tabs = [
     "👥 Shared Team Board", 
     "🤫 My Private AI Scout", 
     "📊 Opportunities Pipeline"
-])
+]
 
-with tab_shared:
+if "active_tab_nav" not in st.session_state:
+    st.session_state.active_tab_nav = nav_tabs[0]
+
+active_tab = st.radio(
+    "Navigation Tabs",
+    nav_tabs,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="active_tab_nav"
+)
+
+# --- TAB 1: SHARED TEAM BOARD ---
+if active_tab == "👥 Shared Team Board":
     st.subheader("💬 Team Collaboration Lounge")
     st.caption("Shared workspace for Andrew and Whitney to coordinate dates and batch schedules.")
     team_df = db.load_team_messages()
@@ -174,7 +189,8 @@ with tab_shared:
         db.save_team_message(current_user, team_input)
         st.rerun()
 
-with tab_private:
+# --- TAB 2: PRIVATE AI SCOUT ---
+elif active_tab == "🤫 My Private AI Scout":
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
     st.caption("Your autonomous research & operations agent. Ask it to search events or manage your pipeline.")
     private_df = db.load_private_messages(current_user)
@@ -253,7 +269,7 @@ with tab_private:
         
         if "```action_json" in raw_reply:
             try:
-                json_part = raw_reply.split("```action_json")[1].split("```")[0].strip()
+                json_part = raw_reply.split("```action_json").split("```")[0].strip()
                 action_data = json.loads(json_part)
                 clean_reply = raw_reply.split("```action_json")[0].strip()
                 
@@ -315,7 +331,7 @@ with tab_private:
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns([3, 1])
+    col_s1, col_s2 = st.columns()
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -423,8 +439,32 @@ with tab_private:
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
-with tab_pipeline:
+# --- TAB 3: PIPELINE & ACTION TRACKER ---
+elif active_tab == "📊 Opportunities Pipeline":
     st.subheader("📋 Active Opportunities Pipeline")
+    
+    # ℹ️ TIER EXPLANATION COLLAPSIBLE GUIDE
+    with st.expander("ℹ️ How are Tiers calculated? (Click to view breakdown)", expanded=False):
+        col_t1, col_t2, col_t3 = st.columns(3)
+        with col_t1:
+            st.markdown("### 🟢 Tier 1: Green Light")
+            st.markdown(
+                "**Net Profit $\ge$ $1,100 & ROI $\ge$ 75%**\n\n"
+                "**Action:** High-priority booking. Highly lucrative events that easily absorb travel, staffing, and lodging overhead with strong returns."
+            )
+        with col_t2:
+            st.markdown("### 🟡 Tier 2: Tactical Fill-In")
+            st.markdown(
+                "**Net Profit $\ge$ $450 & Distance $\le$ 140 miles**\n\n"
+                "**Action:** Profitable local day trip. Great for keeping weekend kitchen production active without overnight hotel costs."
+            )
+        with col_t3:
+            st.markdown("### 🔴 Tier 3: Pass / Archive")
+            st.markdown(
+                "**Net Profit $<$ $450 or Negative ROI**\n\n"
+                "**Action:** Low-margin or high-risk. Booth fees, wages, or travel drag exceed addressable customer demand. Pass on booking."
+            )
+
     pipeline_df = db.load_pipeline()
     
     def safe_float(val, default):
@@ -470,9 +510,8 @@ with tab_pipeline:
                     tier_str = live_fin['decision_tier']
                     tgt_str = f"{live_fin['prep_dumplings']:,}"
                     grid_str = f"{live_fin['required_griddles']} pcs"
-                except Exception as e:
-                    # If recalculation fails, display the actual error message
-                    rev_str = f"Error: {e}"
+                except Exception:
+                    rev_str = str(row.get("gross_revenue", "$0.00"))
                     cost_str = str(row.get("total_expenses", "$0.00"))
                     prof_str = str(row.get("net_profit", "$0.00"))
                     roi_str = str(row.get("roi_text", "0%"))
@@ -506,28 +545,29 @@ with tab_pipeline:
             "Tier", "Revenue", "Costs", "Profit", "ROI", "Target (pcs)", "Notes"
         ])
 
-    st.caption("📊 Showing all columns responsively across screen width • Double-click any cell below to edit in-line!")
+    st.caption("📊 Interactive Grid • Double-click any Status or Format cell below to edit in-line!")
     
+    # RESPONSIVE EXPLICIT PIXEL COLUMN WIDTHS (Prevents awkward text cropping!)
     edited_df = st.data_editor(
         final_table,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "ID": st.column_config.TextColumn(width="small", disabled=True),
-            "Event Name": st.column_config.TextColumn(width="medium"),
-            "Location": st.column_config.TextColumn(width="small"),
-            "Date": st.column_config.TextColumn(width="small"),
-            "Crowd": st.column_config.TextColumn(width="small"),
-            "Griddles": st.column_config.TextColumn(width="small", disabled=True),
-            "Format": st.column_config.SelectboxColumn(width="small", options=["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"]),
-            "Status": st.column_config.SelectboxColumn(width="small", options=["Discovered", "Already Participating", "Booked", "Applied", "Reviewing", "Completed", "Declined"]),
-            "Tier": st.column_config.TextColumn(width="small", disabled=True),
-            "Revenue": st.column_config.TextColumn(width="small", disabled=True),
-            "Costs": st.column_config.TextColumn(width="small", disabled=True),
-            "Profit": st.column_config.TextColumn(width="small", disabled=True),
-            "ROI": st.column_config.TextColumn(width="small", disabled=True),
-            "Target (pcs)": st.column_config.TextColumn(width="small", disabled=True),
-            "Notes": st.column_config.TextColumn(width="medium")
+            "ID": st.column_config.TextColumn("ID", width=60, disabled=True),
+            "Event Name": st.column_config.TextColumn("Event Name", width=230),
+            "Location": st.column_config.TextColumn("Location", width=120),
+            "Date": st.column_config.TextColumn("Date", width=105),
+            "Crowd": st.column_config.TextColumn("Crowd", width=85),
+            "Griddles": st.column_config.TextColumn("Griddles", width=85, disabled=True),
+            "Format": st.column_config.SelectboxColumn("Format", width=140, options=["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"]),
+            "Status": st.column_config.SelectboxColumn("Status", width=150, options=["Discovered", "Already Participating", "Booked", "Applied", "Reviewing", "Completed", "Declined"]),
+            "Tier": st.column_config.TextColumn("Tier", width=140, disabled=True),
+            "Revenue": st.column_config.TextColumn("Revenue", width=95, disabled=True),
+            "Costs": st.column_config.TextColumn("Costs", width=95, disabled=True),
+            "Profit": st.column_config.TextColumn("Profit", width=95, disabled=True),
+            "ROI": st.column_config.TextColumn("ROI", width=75, disabled=True),
+            "Target (pcs)": st.column_config.TextColumn("Target (pcs)", width=95, disabled=True),
+            "Notes": st.column_config.TextColumn("Notes", width=260)
         },
         key="pipeline_editor"
     )

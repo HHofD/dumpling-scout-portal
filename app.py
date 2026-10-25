@@ -73,6 +73,9 @@ from engine import calculate_dumpling_finances
 
 db.initialize_database()
 
+# Load persistent settings from Google Sheets
+saved_settings = db.load_settings()
+
 st.sidebar.title(f"👤 Logged in as: {current_user}")
 if st.sidebar.button("Log Out"):
     cookie_mgr = stx.CookieManager()
@@ -84,12 +87,40 @@ if st.sidebar.button("Log Out"):
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Operational Economics")
 
-val_price = st.sidebar.number_input("Average Menu Item Price ($)", value=12.0, step=0.5, help="Price per 4-dumpling serving")
-val_frozen = st.sidebar.number_input("Frozen 4-Pack Price ($)", value=16.0, step=0.5)
-val_cogs = st.sidebar.number_input("Raw Ingredient Cost / Dumpling ($)", value=0.42, step=0.01)
-val_wage = st.sidebar.number_input("Staff Hourly Wage ($)", value=20.0, step=1.0)
-val_frozen_pct = st.sidebar.slider("Frozen Sales % at Mixed Events", 0.0, 1.0, 0.25, step=0.05)
-val_fulfillment = st.sidebar.slider("Fulfillment Time Target (min/order)", 0.5, 5.0, 1.5, step=0.1)
+# Inputs initialize using the saved values from Google Sheets
+val_price = st.sidebar.number_input(
+    "Average Menu Item Price ($)",
+    value=float(saved_settings.get("item_menu_price", 12.0)),
+    step=0.5,
+    help="Price per 4-dumpling serving"
+)
+val_frozen = st.sidebar.number_input(
+    "Frozen 4-Pack Price ($)",
+    value=float(saved_settings.get("frozen_pack_price", 16.0)),
+    step=0.5
+)
+val_cogs = st.sidebar.number_input(
+    "Raw Ingredient Cost / Dumpling ($)",
+    value=float(saved_settings.get("ingredient_cogs", 0.42)),
+    step=0.01
+)
+val_wage = st.sidebar.number_input(
+    "Staff Hourly Wage ($)",
+    value=float(saved_settings.get("hourly_wage", 20.0)),
+    step=1.0
+)
+val_frozen_pct = st.sidebar.slider(
+    "Frozen Sales % at Mixed Events",
+    0.0, 1.0,
+    float(saved_settings.get("frozen_upsell_pct", 0.25)),
+    step=0.05
+)
+val_fulfillment = st.sidebar.slider(
+    "Fulfillment Time Target (min/order)",
+    0.5, 5.0,
+    float(saved_settings.get("fulfillment_time_target", 1.5)),
+    step=0.1
+)
 
 config = {
     "item_menu_price": val_price,
@@ -99,6 +130,11 @@ config = {
     "frozen_upsell_pct": val_frozen_pct,
     "fulfillment_time_target": val_fulfillment
 }
+
+# Save button writes current sidebar values to Google Sheets permanently
+if st.sidebar.button("💾 Save Settings Permanently", use_container_width=True):
+    if db.save_settings(config):
+        st.sidebar.success("Settings saved to Google Sheets!")
 
 st.sidebar.caption("🍳 Griddle math: 24 dumplings / griddle every 12 mins. 1 cook handles up to 3 griddles; 4+ griddles requires 2 cooks.")
 

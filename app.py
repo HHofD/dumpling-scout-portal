@@ -681,24 +681,29 @@ elif active_tab == "💸 Cost Breakdown":
                 live_fin = calculate_dumpling_finances(calc_input, config)
                 
                 # Granular cost mathematics
-                dumplings_count = live_fin["prep_dumplings"]
+                dumplings_count = live_fin.get("prep_dumplings", 0)
                 food_cogs = round(dumplings_count * config["ingredient_cogs"], 2)
                 
-                # Packaging split
+                # Packaging split (safe from KeyError)
                 frozen_pct = float(config.get("frozen_upsell_pct", 0.25))
+                proj_cust = live_fin.get("projected_customers", 100)
+                
                 if fmt_val == "Frozen Only":
-                    packaging = round(live_fin["projected_customers"] * 0.50, 2)
+                    packaging = round(proj_cust * 0.50, 2)
                 elif fmt_val == "Hot Cooked Only":
-                    packaging = round(live_fin["projected_customers"] * 0.75, 2)
+                    packaging = round(proj_cust * 0.75, 2)
                 else:
-                    hot_c = round(live_fin["projected_customers"] * (1.0 - frozen_pct))
-                    froz_c = round(live_fin["projected_customers"] * frozen_pct)
+                    hot_c = round(proj_cust * (1.0 - frozen_pct))
+                    froz_c = round(proj_cust * frozen_pct)
                     packaging = round((hot_c * 0.75) + (froz_c * 0.50), 2)
+
                     
-                # Labor expenses
-                paid_helpers = max(0, live_fin["total_staff"] - event_founders)
+                # Labor expenses (safe lookup with fallback)
+                tot_staff = live_fin.get("total_staff", 2)
+                paid_helpers = live_fin.get("paid_helpers", max(0, tot_staff - event_founders))
                 transit_hrs = (dist_val / 55.0) * 2.0
                 labor_cost = round(paid_helpers * (hrs_val + 1.5 + transit_hrs) * config["hourly_wage"], 2)
+
                 
                 # Travel & Lodging
                 mileage_cost = round(dist_val * 2.0 * 0.35, 2)

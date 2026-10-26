@@ -216,7 +216,7 @@ if active_tab == "👥 Shared Team Board":
 # --- TAB 2: PRIVATE AI SCOUT ---
 elif active_tab == "🤫 My Private AI Scout":
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
-    st.caption("Your autonomous research & operations agent. Ask it to search events or bulk-add to pipeline.")
+    st.caption("Your autonomous research & operations agent. Ask it to search events or manage your pipeline.")
     private_df = db.load_private_messages(current_user)
     ai_box = st.container(height=380)
     with ai_box:
@@ -506,8 +506,24 @@ elif active_tab == "📊 Opportunities Pipeline":
             )
 
     pipeline_df = db.load_pipeline()
-    display_rows = []
     
+    def safe_float(val, default):
+        try:
+            if pd.isna(val) or val is None or str(val).strip() == "":
+                return default
+            return float(str(val).replace("$", "").replace(",", "").strip())
+        except Exception:
+            return default
+
+    def safe_int(val, default):
+        try:
+            if pd.isna(val) or val is None or str(val).strip() == "":
+                return default
+            return int(float(str(val).replace(",", "").strip()))
+        except Exception:
+            return default
+
+    display_rows = []
     if not pipeline_df.empty and "event_name" in pipeline_df.columns:
         for _, row in pipeline_df.iterrows():
             ev_name = str(row.get("event_name", "")).strip()
@@ -521,6 +537,7 @@ elif active_tab == "📊 Opportunities Pipeline":
                 loc_val = str(row.get("location") or "Arizona")
                 pwr_val = True if str(row.get("power_available", "True")).lower() in ["true", "1", "yes"] else False
                 
+                # Per-event founder setting (defaults to sidebar default if empty)
                 event_founders = safe_int(row.get("founders_working"), default_founders)
                 if event_founders not in [0, 1, 2]:
                     event_founders = default_founders
@@ -591,7 +608,7 @@ elif active_tab == "📊 Opportunities Pipeline":
             "Tier", "Revenue", "Costs", "Profit", "ROI", "Target (pcs)", "Notes"
         ])
 
-    st.caption("📊 Overview Grid • Double-click Founders, Format, or Status to edit directly!")
+    st.caption("📊 Showing all columns responsively across screen width • Double-click any cell below to edit in-line!")
     
     edited_df = st.data_editor(
         final_table,
@@ -600,7 +617,7 @@ elif active_tab == "📊 Opportunities Pipeline":
         column_config={
             "ID": st.column_config.TextColumn("ID", width=60, disabled=True),
             "Event Name": st.column_config.TextColumn("Event Name", width=220),
-            "Location": st.column_config.TextColumn("Location", width=115),
+            "Location": st.column_config.TextColumn("Location", width=120),
             "Date": st.column_config.TextColumn("Date", width=105),
             "Crowd": st.column_config.TextColumn("Crowd", width=80),
             "Griddles": st.column_config.TextColumn("Griddles", width=80, disabled=True),
@@ -640,10 +657,11 @@ elif active_tab == "📊 Opportunities Pipeline":
                         st.rerun()
                 except Exception as err:
                     st.error(f"Failed to save in-line edits: {err}")
+    
+    if final_table.empty:
+        st.info("The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
 
-# =====================================================================
-# TAB 4: DEDICATED COST BREAKDOWN & EDITABLE EXPENSE LEDGER
-# =====================================================================
+# --- TAB 4: DEDICATED COST BREAKDOWN ---
 elif active_tab == "💸 Cost Breakdown":
     st.subheader("💸 Operational Cost Breakdown & Expense Ledger")
     st.caption("Itemized expense ledger per event. Double-click any cost cell to override with exact receipts or custom fees!")
@@ -665,71 +683,81 @@ elif active_tab == "💸 Cost Breakdown":
                 pwr_val = True if str(row.get("power_available", "True")).lower() in ["true", "1", "yes"] else False
                 event_founders = safe_int(row.get("founders_working"), default_founders)
                 
-                # Calculate detailed cost categories
-                calc_input = {
-                    "event_name": ev_name,
-                    "estimated_attendance": att_val,
-                    "category": cat_val,
-                    "product_format": fmt_val,
-                    "operating_hours": hrs_val,
-                    "distance_from_tucson_miles": dist_val,
-                    "location": loc_val,
-                    "vendor_fee_usd": fee_val,
-                    "power_available": pwr_val,
-                    "founders_working": event_founders
-                }
-                live_fin = calculate_dumpling_finances(calc_input, config)
-                
-                # Granular cost mathematics
-                dumplings_count = live_fin.get("prep_dumplings", 0)
-                food_cogs = round(dumplings_count * config["ingredient_cogs"], 2)
-                
-                # Packaging split (safe from KeyError)
-                frozen_pct = float(config.get("frozen_upsell_pct", 0.25))
-                proj_cust = live_fin.get("projected_customers", 100)
-                
-                if fmt_val == "Frozen Only":
-                    packaging = round(proj_cust * 0.50, 2)
-                elif fmt_val == "Hot Cooked Only":
-                    packaging = round(proj_cust * 0.75, 2)
-                else:
-                    hot_c = round(proj_cust * (1.0 - frozen_pct))
-                    froz_c = round(proj_cust * frozen_pct)
-                    packaging = round((hot_c * 0.75) + (froz_c * 0.50), 2)
-
+                try:
+                    calc_input = {
+                        "event_name": ev_name,
+                        "estimated_attendance": att_val,
+                        "category": cat_val,
+                        "product_format": fmt_val,
+                        "operating_hours": hrs_val,
+                        "distance_from_tucson_miles": dist_val,
+                        "location": loc_val,
+                        "vendor_fee_usd": fee_val,
+                        "power_available": pwr_val,
+                        "founders_working": event_founders
+                    }
+                    live_fin = calculate_dumpling_finances(calc_input, config)
                     
-                # Labor expenses (safe lookup with fallback)
-                tot_staff = live_fin.get("total_staff", 2)
-                paid_helpers = live_fin.get("paid_helpers", max(0, tot_staff - event_founders))
-                transit_hrs = (dist_val / 55.0) * 2.0
-                labor_cost = round(paid_helpers * (hrs_val + 1.5 + transit_hrs) * config["hourly_wage"], 2)
-
-                
-                # Travel & Lodging
-                mileage_cost = round(dist_val * 2.0 * 0.35, 2)
-                lodging_cost = 220.00 if dist_val > 180 else 0.00
-                
-                # Permits
-                loc_lower = loc_val.lower()
-                permit_fee = 0.00 if dist_val <= 50 else (200.00 if "maricopa" in loc_lower or "phoenix" in loc_lower or "scottsdale" in loc_lower else 150.00)
-                booth_fee = round(fee_val, 2)
-                utility_fee = 40.00 if (not pwr_val and fmt_val != "Frozen Only") else 0.00
-                
-                total_cost = round(food_cogs + packaging + labor_cost + mileage_cost + lodging_cost + permit_fee + booth_fee + utility_fee, 2)
-                
-                cost_rows.append({
-                    "ID": str(row.get("id", "")),
-                    "Event Name": ev_name,
-                    "Food COGS ($)": float(food_cogs),
-                    "Packaging ($)": float(packaging),
-                    "Crew Labor ($)": float(labor_cost),
-                    "Mileage ($)": float(mileage_cost),
-                    "Lodging ($)": float(lodging_cost),
-                    "Permit ($)": float(permit_fee),
-                    "Booth Fee ($)": float(booth_fee),
-                    "Utilities ($)": float(utility_fee),
-                    "Total Costs ($)": float(total_cost)
-                })
+                    # 🧼 KEYERROR SAFE RESOLUTIONS: use .get() fallbacks for every dictionary call!
+                    dumplings_count = live_fin.get("prep_dumplings", 0)
+                    food_cogs = round(dumplings_count * config["ingredient_cogs"], 2)
+                    
+                    # Packaging calculation using keyerror safe value
+                    proj_cust = live_fin.get("projected_customers", 100)
+                    frozen_pct = float(config.get("frozen_upsell_pct", 0.25))
+                    if fmt_val == "Frozen Only":
+                        packaging = round(proj_cust * 0.50, 2)
+                    elif fmt_val == "Hot Cooked Only":
+                        packaging = round(proj_cust * 0.75, 2)
+                    else:
+                        hot_c = round(proj_cust * (1.0 - frozen_pct))
+                        froz_c = round(proj_cust * frozen_pct)
+                        packaging = round((hot_c * 0.75) + (froz_c * 0.50), 2)
+                        
+                    # Labor calculations using keyerror safe values
+                    tot_staff = live_fin.get("total_staff", 2)
+                    paid_helpers = live_fin.get("paid_helpers", max(0, tot_staff - event_founders))
+                    transit_hrs = (dist_val / 55.0) * 2.0
+                    labor_cost = round(paid_helpers * (hrs_val + 1.5 + transit_hrs) * config["hourly_wage"], 2)
+                    
+                    mileage_cost = round(dist_val * 2.0 * 0.35, 2)
+                    lodging_cost = 220.00 if dist_val > 180 else 0.00
+                    
+                    loc_lower = loc_val.lower()
+                    permit_fee = 0.00 if dist_val <= 50 else (200.00 if "maricopa" in loc_lower or "phoenix" in loc_lower or "scottsdale" in loc_lower else 150.00)
+                    booth_fee = round(fee_val, 2)
+                    utility_fee = 40.00 if (not pwr_val and fmt_val != "Frozen Only") else 0.00
+                    
+                    total_cost = round(food_cogs + packaging + labor_cost + mileage_cost + lodging_cost + permit_fee + booth_fee + utility_fee, 2)
+                    
+                    cost_rows.append({
+                        "ID": str(row.get("id", "")),
+                        "Event Name": ev_name,
+                        "Food COGS ($)": float(food_cogs),
+                        "Packaging ($)": float(packaging),
+                        "Crew Labor ($)": float(labor_cost),
+                        "Mileage ($)": float(mileage_cost),
+                        "Lodging ($)": float(lodging_cost),
+                        "Permit ($)": float(permit_fee),
+                        "Booth Fee ($)": float(booth_fee),
+                        "Utilities ($)": float(utility_fee),
+                        "Total Costs ($)": float(total_cost)
+                    })
+                except Exception as err:
+                    # Provide empty fallback structures if calculation fails
+                    cost_rows.append({
+                        "ID": str(row.get("id", "")),
+                        "Event Name": ev_name,
+                        "Food COGS ($)": 0.0,
+                        "Packaging ($)": 0.0,
+                        "Crew Labor ($)": 0.0,
+                        "Mileage ($)": 0.0,
+                        "Lodging ($)": 0.0,
+                        "Permit ($)": 0.0,
+                        "Booth Fee ($)": float(fee_val),
+                        "Utilities ($)": 0.0,
+                        "Total Costs ($)": float(fee_val)
+                    })
 
     cost_df = pd.DataFrame(cost_rows)
     

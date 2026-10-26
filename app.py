@@ -39,7 +39,7 @@ def authenticate_user():
     st.markdown("<p style='text-align: center; color: gray;'>Private Scouting & Operations Hub</p>", unsafe_allow_html=True)
     st.write("")
 
-    col1, col2, col3 = st.columns()
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         username_input = st.text_input("Username").strip().lower()
         password_input = st.text_input("Password", type="password").strip()
@@ -151,9 +151,6 @@ if st.sidebar.button("💾 Save Settings Permanently", use_container_width=True)
 
 st.sidebar.caption("🍳 Griddle math: 24 dumplings / griddle every 12 mins. 1 cook handles up to 3 griddles; 4+ griddles requires 2 cooks.")
 
-# =====================================================================
-# PERSISTENT HORIZONTAL NAVIGATION (Prevents resetting to Tab 1 on rerun!)
-# =====================================================================
 nav_tabs = [
     "👥 Shared Team Board", 
     "🤫 My Private AI Scout", 
@@ -189,20 +186,20 @@ if active_tab == "👥 Shared Team Board":
         db.save_team_message(current_user, team_input)
         st.rerun()
 
-# --- TAB 2: PRIVATE AI SCOUT ---
+# --- TAB 2: PRIVATE AI SCOUT (WITH BULK EVENT DISCOVERY & AUTO-POPULATION) ---
 elif active_tab == "🤫 My Private AI Scout":
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
-    st.caption("Your autonomous research & operations agent. Ask it to search events or manage your pipeline.")
+    st.caption("Your autonomous research & operations agent. Ask it to search single events, research cities, OR bulk-add multiple events to your pipeline at once!")
     private_df = db.load_private_messages(current_user)
     ai_box = st.container(height=380)
     with ai_box:
         if private_df.empty:
-            st.info(f"Welcome {current_user}! Ask me to research events, or say: 'Add Tucson Meet Yourself to pipeline', or 'Mark event #2 as Applied'.")
+            st.info(f"Welcome {current_user}! Ask me to research events, or say: 'Find 3 events in Phoenix and add them to our pipeline'.")
         for _, row in private_df.iterrows():
             with st.chat_message(row["role"]):
                 st.write(row["message"])
                 
-    ai_input = st.chat_input("Research an event, or tell me to add/edit the pipeline...", key="ai_scout_input")
+    ai_input = st.chat_input("Research events, or say 'Find 3 food events in Phoenix and save them'...", key="ai_scout_input")
     if ai_input:
         db.save_private_message(current_user, "user", ai_input)
         api_k = get_gemini_api_key()
@@ -222,26 +219,30 @@ elif active_tab == "🤫 My Private AI Scout":
         {pipeline_summary if pipeline_summary else "No events in pipeline yet."}
 
         CAPABILITIES:
-        1. If user asks to ADD or SAVE an event:
-           Output a structured ACTION block at the end of your reply in this exact JSON format:
+        1. If the user asks you to ADD or SAVE one or more events (e.g. 'find 3 events in Phoenix and add them'):
+           Output a structured ACTION block at the end of your reply in this exact JSON format with an array of events:
            ```action_json
            {{
-             "action": "add_event",
-             "event_name": "...",
-             "location": "...",
-             "event_date": "...",
-             "category": "Niche GF / Athletic" | "General Mass / Street Fair" | "Vegan / Wellness",
-             "product_format": "Both Hot & Frozen" | "Hot Cooked Only" | "Frozen Only",
-             "participation_status": "Discovered" | "Already Participating" | "Booked" | "Applied" | "Reviewing",
-             "estimated_attendance": 1000,
-             "operating_hours": 6.0,
-             "distance_from_tucson_miles": 115.0,
-             "vendor_fee_usd": 150.0,
-             "power_available": true
+             "action": "bulk_add_events",
+             "events": [
+               {{
+                 "event_name": "...",
+                 "location": "...",
+                 "event_date": "...",
+                 "category": "Niche GF / Athletic" | "General Mass / Street Fair" | "Vegan / Wellness",
+                 "product_format": "Both Hot & Frozen" | "Hot Cooked Only" | "Frozen Only",
+                 "participation_status": "Discovered",
+                 "estimated_attendance": 1000,
+                 "operating_hours": 6.0,
+                 "distance_from_tucson_miles": 115.0,
+                 "vendor_fee_usd": 150.0,
+                 "power_available": true
+               }}
+             ]
            }}
            ```
 
-        2. If user asks to UPDATE or EDIT an existing event:
+        2. If the user asks you to UPDATE an existing event:
            Output a structured ACTION block:
            ```action_json
            {{
@@ -252,7 +253,7 @@ elif active_tab == "🤫 My Private AI Scout":
            }}
            ```
 
-        3. If researching:
+        3. If just researching:
            Answer thoroughly with web research and clear advice. Do NOT include an action_json block.
         """
         
@@ -269,44 +270,53 @@ elif active_tab == "🤫 My Private AI Scout":
         
         if "```action_json" in raw_reply:
             try:
-                json_part = raw_reply.split("```action_json").split("```")[0].strip()
+                json_part = raw_reply.split("```action_json")[1].split("```")[0].strip()
                 action_data = json.loads(json_part)
                 clean_reply = raw_reply.split("```action_json")[0].strip()
                 
-                if action_data.get("action") == "add_event":
-                    calc_input = {
-                        "event_name": action_data.get("event_name"),
-                        "estimated_attendance": action_data.get("estimated_attendance", 800),
-                        "category": action_data.get("category", "General Mass / Street Fair"),
-                        "product_format": action_data.get("product_format", "Both Hot & Frozen"),
-                        "operating_hours": action_data.get("operating_hours", 6.0),
-                        "distance_from_tucson_miles": action_data.get("distance_from_tucson_miles", 100.0),
-                        "location": action_data.get("location", "Arizona"),
-                        "vendor_fee_usd": action_data.get("vendor_fee_usd", 150.0),
-                        "power_available": action_data.get("power_available", True)
-                    }
-                    finances = calculate_dumpling_finances(calc_input, config)
-                    db.add_event_to_pipeline({
-                        "event_name": action_data.get("event_name"),
-                        "location": action_data.get("location"),
-                        "event_date": action_data.get("event_date"),
-                        "category": action_data.get("category"),
-                        "product_format": action_data.get("product_format"),
-                        "participation_status": action_data.get("participation_status", "Discovered"),
-                        "est_attendance": action_data.get("estimated_attendance"),
-                        "operating_hours": action_data.get("operating_hours", 6.0),
-                        "distance_from_tucson_miles": action_data.get("distance_from_tucson_miles", 100.0),
-                        "vendor_fee_usd": action_data.get("vendor_fee_usd", 150.0),
-                        "power_available": action_data.get("power_available", True),
-                        "gross_revenue": finances["gross_revenue"],
-                        "total_expenses": finances["total_expenses"],
-                        "net_profit": finances["net_profit"],
-                        "roi_text": finances["roi_text"],
-                        "decision_tier": finances["decision_tier"],
-                        "prep_dumplings": finances["prep_dumplings"],
-                        "notes": f"Added via AI Chat by {current_user} (Griddles: {finances['required_griddles']})"
-                    })
-                    clean_reply += f"\n\n---\n✅ **Action Completed:** Saved **'{action_data.get('event_name')}'** to Google Sheets! (Net Profit: **${finances['net_profit']:,.2f}**, Target: **{finances['prep_dumplings']} dumplings**, Griddles: **{finances['required_griddles']}**)."
+                # SUPPORT BOTH SINGLE AND BULK AUTO-POPULATION!
+                if action_data.get("action") in ["bulk_add_events", "add_event"]:
+                    events_to_add = action_data.get("events", [])
+                    if not events_to_add and action_data.get("event_name"):
+                        events_to_add = [action_data]
+                        
+                    added_summaries = []
+                    for ev in events_to_add:
+                        calc_input = {
+                            "event_name": ev.get("event_name"),
+                            "estimated_attendance": ev.get("estimated_attendance", 800),
+                            "category": ev.get("category", "General Mass / Street Fair"),
+                            "product_format": ev.get("product_format", "Both Hot & Frozen"),
+                            "operating_hours": ev.get("operating_hours", 6.0),
+                            "distance_from_tucson_miles": ev.get("distance_from_tucson_miles", 100.0),
+                            "location": ev.get("location", "Arizona"),
+                            "vendor_fee_usd": ev.get("vendor_fee_usd", 150.0),
+                            "power_available": ev.get("power_available", True)
+                        }
+                        finances = calculate_dumpling_finances(calc_input, config)
+                        db.add_event_to_pipeline({
+                            "event_name": ev.get("event_name"),
+                            "location": ev.get("location"),
+                            "event_date": ev.get("event_date"),
+                            "category": ev.get("category"),
+                            "product_format": ev.get("product_format"),
+                            "participation_status": ev.get("participation_status", "Discovered"),
+                            "est_attendance": ev.get("estimated_attendance"),
+                            "operating_hours": ev.get("operating_hours", 6.0),
+                            "distance_from_tucson_miles": ev.get("distance_from_tucson_miles", 100.0),
+                            "vendor_fee_usd": ev.get("vendor_fee_usd", 150.0),
+                            "power_available": ev.get("power_available", True),
+                            "gross_revenue": finances["gross_revenue"],
+                            "total_expenses": finances["total_expenses"],
+                            "net_profit": finances["net_profit"],
+                            "roi_text": finances["roi_text"],
+                            "decision_tier": finances["decision_tier"],
+                            "prep_dumplings": finances["prep_dumplings"],
+                            "notes": f"Auto-added via AI by {current_user} (Griddles: {finances['required_griddles']})"
+                        })
+                        added_summaries.append(f"• **{ev.get('event_name')}** ({finances['decision_tier']} | Est. Profit: **${finances['net_profit']:,.2f}**)")
+                        
+                    clean_reply += f"\n\n---\n✅ **Bulk Action Completed:** Successfully saved **{len(added_summaries)} event(s)** directly into your Google Sheets pipeline!\n" + "\n".join(added_summaries)
                     
                 elif action_data.get("action") == "update_event":
                     ev_id = action_data.get("event_id")
@@ -315,7 +325,7 @@ elif active_tab == "🤫 My Private AI Scout":
                     db.update_event_status_and_format(ev_id, st_val, fmt_val)
                     clean_reply += f"\n\n---\n✅ **Action Completed:** Updated Event #{ev_id} to Status: **{st_val}** | Format: **{fmt_val}** in Google Sheets!"
             except Exception as e:
-                clean_reply += f"\n\n*(Action could not complete: {e})*"
+                clean_reply += f"\n\n*(Could not execute autonomous action: {e})*"
 
         db.save_private_message(current_user, "assistant", clean_reply)
         st.rerun()
@@ -331,7 +341,7 @@ elif active_tab == "🤫 My Private AI Scout":
             "power": False, "is_ai": False, "source_url": "", "source_summary": ""
         }
 
-    col_s1, col_s2 = st.columns()
+    col_s1, col_s2 = st.columns([3, 1])
     with col_s1:
         quick_query = st.text_input("Event Name or Web Link to Research", placeholder="e.g., Bisbee Pirate Weekend or Tempe Festival of the Arts")
     with col_s2:
@@ -443,7 +453,6 @@ elif active_tab == "🤫 My Private AI Scout":
 elif active_tab == "📊 Opportunities Pipeline":
     st.subheader("📋 Active Opportunities Pipeline")
     
-    # ℹ️ TIER EXPLANATION COLLAPSIBLE GUIDE
     with st.expander("ℹ️ How are Tiers calculated? (Click to view breakdown)", expanded=False):
         col_t1, col_t2, col_t3 = st.columns(3)
         with col_t1:
@@ -507,15 +516,24 @@ elif active_tab == "📊 Opportunities Pipeline":
                     cost_str = f"${live_fin['total_expenses']:,.2f}"
                     prof_str = f"${live_fin['net_profit']:,.2f}"
                     roi_str = live_fin['roi_text']
-                    tier_str = live_fin['decision_tier']
+                    
+                    # 🟢🟡🔴 COLOR BADGES MATCHING THE TIER EXPLANATION
+                    tier_raw = live_fin['decision_tier']
+                    if "Tier 1" in tier_raw:
+                        tier_display = "🟢 Tier 1: Green Light"
+                    elif "Tier 2" in tier_raw:
+                        tier_display = "🟡 Tier 2: Fill-In"
+                    else:
+                        tier_display = "🔴 Tier 3: Pass"
+                        
                     tgt_str = f"{live_fin['prep_dumplings']:,}"
                     grid_str = f"{live_fin['required_griddles']} pcs"
-                except Exception:
+                except Exception as e:
                     rev_str = str(row.get("gross_revenue", "$0.00"))
                     cost_str = str(row.get("total_expenses", "$0.00"))
                     prof_str = str(row.get("net_profit", "$0.00"))
                     roi_str = str(row.get("roi_text", "0%"))
-                    tier_str = str(row.get("decision_tier", "Review"))
+                    tier_display = "🔴 Tier 3: Pass"
                     tgt_str = str(row.get("prep_dumplings", "0"))
                     grid_str = "2 pcs"
 
@@ -528,7 +546,7 @@ elif active_tab == "📊 Opportunities Pipeline":
                     "Griddles": grid_str,
                     "Format": fmt_val,
                     "Status": str(row.get("participation_status", "Discovered")),
-                    "Tier": tier_str,
+                    "Tier": tier_display,
                     "Revenue": rev_str,
                     "Costs": cost_str,
                     "Profit": prof_str,
@@ -547,7 +565,6 @@ elif active_tab == "📊 Opportunities Pipeline":
 
     st.caption("📊 Interactive Grid • Double-click any Status or Format cell below to edit in-line!")
     
-    # RESPONSIVE EXPLICIT PIXEL COLUMN WIDTHS (Prevents awkward text cropping!)
     edited_df = st.data_editor(
         final_table,
         use_container_width=True,
@@ -561,7 +578,7 @@ elif active_tab == "📊 Opportunities Pipeline":
             "Griddles": st.column_config.TextColumn("Griddles", width=85, disabled=True),
             "Format": st.column_config.SelectboxColumn("Format", width=140, options=["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"]),
             "Status": st.column_config.SelectboxColumn("Status", width=150, options=["Discovered", "Already Participating", "Booked", "Applied", "Reviewing", "Completed", "Declined"]),
-            "Tier": st.column_config.TextColumn("Tier", width=140, disabled=True),
+            "Tier": st.column_config.TextColumn("Tier", width=155, disabled=True),
             "Revenue": st.column_config.TextColumn("Revenue", width=95, disabled=True),
             "Costs": st.column_config.TextColumn("Costs", width=95, disabled=True),
             "Profit": st.column_config.TextColumn("Profit", width=95, disabled=True),

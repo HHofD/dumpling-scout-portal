@@ -73,6 +73,7 @@ from engine import calculate_dumpling_finances
 
 db.initialize_database()
 
+# Load persistent settings directly from Google Sheets
 saved_settings = db.load_settings()
 
 st.sidebar.title(f"👤 Logged in as: {current_user}")
@@ -109,10 +110,10 @@ val_wage = st.sidebar.number_input(
     step=1.0
 )
 default_founders = st.sidebar.selectbox(
-    "Default Founders on Shift",
+    "Default Founders on Shift (Unpaid)",
     [2, 1, 0],
     index=[2, 1, 0].index(int(saved_settings.get("founders_working", 2))),
-    help="Default founder attendance for new events. Each event can also be customized individually in the table."
+    help="Default founder attendance. 2 = both founders ($0 labor up to 2 staff). 1 = 1 founder. 0 = all crew paid hourly."
 )
 val_frozen_pct_input = st.sidebar.number_input(
     "Frozen Sales % at Mixed Events (%)",
@@ -156,10 +157,14 @@ if st.sidebar.button("💾 Save Settings Permanently", use_container_width=True)
 
 st.sidebar.caption("🍳 Griddle math: 24 dumplings / griddle every 12 mins. Founders on shift reduce paid crew costs.")
 
+# =====================================================================
+# PERSISTENT 4-TAB HORIZONTAL NAVIGATION
+# =====================================================================
 nav_tabs = [
     "👥 Shared Team Board", 
     "🤫 My Private AI Scout", 
-    "📊 Opportunities Pipeline"
+    "📊 Opportunities Pipeline",
+    "💸 Cost Breakdown"
 ]
 
 if "active_tab_nav" not in st.session_state:
@@ -172,6 +177,23 @@ active_tab = st.radio(
     label_visibility="collapsed",
     key="active_tab_nav"
 )
+
+# Helper parsing utilities
+def safe_float(val, default):
+    try:
+        if pd.isna(val) or val is None or str(val).strip() == "":
+            return default
+        return float(str(val).replace("$", "").replace(",", "").strip())
+    except Exception:
+        return default
+
+def safe_int(val, default):
+    try:
+        if pd.isna(val) or val is None or str(val).strip() == "":
+            return default
+        return int(float(str(val).replace(",", "").strip()))
+    except Exception:
+        return default
 
 # --- TAB 1: SHARED TEAM BOARD ---
 if active_tab == "👥 Shared Team Board":
@@ -458,7 +480,7 @@ elif active_tab == "🤫 My Private AI Scout":
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
-# --- TAB 3: PIPELINE & ACTION TRACKER ---
+# --- TAB 3: PIPELINE OVERVIEW ---
 elif active_tab == "📊 Opportunities Pipeline":
     st.subheader("📋 Active Opportunities Pipeline")
     
@@ -484,24 +506,8 @@ elif active_tab == "📊 Opportunities Pipeline":
             )
 
     pipeline_df = db.load_pipeline()
-    
-    def safe_float(val, default):
-        try:
-            if pd.isna(val) or val is None or str(val).strip() == "":
-                return default
-            return float(str(val).replace("$", "").replace(",", "").strip())
-        except Exception:
-            return default
-
-    def safe_int(val, default):
-        try:
-            if pd.isna(val) or val is None or str(val).strip() == "":
-                return default
-            return int(float(str(val).replace(",", "").strip()))
-        except Exception:
-            return default
-
     display_rows = []
+    
     if not pipeline_df.empty and "event_name" in pipeline_df.columns:
         for _, row in pipeline_df.iterrows():
             ev_name = str(row.get("event_name", "")).strip()
@@ -515,7 +521,6 @@ elif active_tab == "📊 Opportunities Pipeline":
                 loc_val = str(row.get("location") or "Arizona")
                 pwr_val = True if str(row.get("power_available", "True")).lower() in ["true", "1", "yes"] else False
                 
-                # Per-event founder setting (defaults to sidebar default if empty)
                 event_founders = safe_int(row.get("founders_working"), default_founders)
                 if event_founders not in [0, 1, 2]:
                     event_founders = default_founders
@@ -586,7 +591,7 @@ elif active_tab == "📊 Opportunities Pipeline":
             "Tier", "Revenue", "Costs", "Profit", "ROI", "Target (pcs)", "Notes"
         ])
 
-    st.caption("📊 Interactive Grid • Double-click Founders, Format, or Status to edit directly!")
+    st.caption("📊 Overview Grid • Double-click Founders, Format, or Status to edit directly!")
     
     edited_df = st.data_editor(
         final_table,
@@ -599,7 +604,7 @@ elif active_tab == "📊 Opportunities Pipeline":
             "Date": st.column_config.TextColumn("Date", width=105),
             "Crowd": st.column_config.TextColumn("Crowd", width=80),
             "Griddles": st.column_config.TextColumn("Griddles", width=80, disabled=True),
-            "Founders": st.column_config.SelectboxColumn("Founders", width=95, options=["2", "1", "0"], help="Founders working (unpaid). 2 = both founders ($0 labor up to 2 staff). 1 = 1 founder. 0 = all paid."),
+            "Founders": st.column_config.SelectboxColumn("Founders", width=95, options=["2", "1", "0"]),
             "Format": st.column_config.SelectboxColumn("Format", width=140, options=["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"]),
             "Status": st.column_config.SelectboxColumn("Status", width=145, options=["Discovered", "Already Participating", "Booked", "Applied", "Reviewing", "Completed", "Declined"]),
             "Tier": st.column_config.TextColumn("Tier", width=155, disabled=True),
@@ -613,7 +618,6 @@ elif active_tab == "📊 Opportunities Pipeline":
         key="pipeline_editor"
     )
     
-    # Save any in-line edits (Founders, Format, or Status) directly to Google Sheets!
     if st.session_state.get("pipeline_editor") and "edited_rows" in st.session_state.pipeline_editor:
         changes = st.session_state.pipeline_editor["edited_rows"]
         if changes:
@@ -625,10 +629,10 @@ elif active_tab == "📊 Opportunities Pipeline":
                     if "Founders" in updated_cols:
                         fields_to_update["founders_working"] = int(float(str(updated_cols["Founders"]).strip()))
                     if "Status" in updated_cols:
-                        fields_to_update["participation_status"] = updated_cols["Status"]
-                        fields_to_update["status"] = updated_cols["Status"]
+                        fields_to_update["participation_status"] = str(updated_cols["Status"]).strip()
+                        fields_to_update["status"] = str(updated_cols["Status"]).strip()
                     if "Format" in updated_cols:
-                        fields_to_update["product_format"] = updated_cols["Format"]
+                        fields_to_update["product_format"] = str(updated_cols["Format"]).strip()
                     
                     if fields_to_update:
                         db.update_event_field(target_id, fields_to_update)
@@ -636,6 +640,135 @@ elif active_tab == "📊 Opportunities Pipeline":
                         st.rerun()
                 except Exception as err:
                     st.error(f"Failed to save in-line edits: {err}")
+
+# =====================================================================
+# TAB 4: DEDICATED COST BREAKDOWN & EDITABLE EXPENSE LEDGER
+# =====================================================================
+elif active_tab == "💸 Cost Breakdown":
+    st.subheader("💸 Operational Cost Breakdown & Expense Ledger")
+    st.caption("Itemized expense ledger per event. Double-click any cost cell to override with exact receipts or custom fees!")
     
-    if final_table.empty:
-        st.info("The pipeline has no active events yet. Submit an opportunity in Tab 2 to populate this table.")
+    pipeline_df = db.load_pipeline()
+    cost_rows = []
+    
+    if not pipeline_df.empty and "event_name" in pipeline_df.columns:
+        for _, row in pipeline_df.iterrows():
+            ev_name = str(row.get("event_name", "")).strip()
+            if ev_name:
+                att_val = safe_float(row.get("estimated_attendance"), 800.0)
+                hrs_val = max(1.0, safe_float(row.get("operating_hours"), 6.0))
+                dist_val = safe_float(row.get("distance_from_tucson_miles"), 100.0)
+                fee_val = safe_float(row.get("vendor_fee_usd"), 150.0)
+                cat_val = str(row.get("category") or "General Mass / Street Fair")
+                fmt_val = str(row.get("product_format") or "Both Hot & Frozen")
+                loc_val = str(row.get("location") or "Arizona")
+                pwr_val = True if str(row.get("power_available", "True")).lower() in ["true", "1", "yes"] else False
+                event_founders = safe_int(row.get("founders_working"), default_founders)
+                
+                # Calculate detailed cost categories
+                calc_input = {
+                    "event_name": ev_name,
+                    "estimated_attendance": att_val,
+                    "category": cat_val,
+                    "product_format": fmt_val,
+                    "operating_hours": hrs_val,
+                    "distance_from_tucson_miles": dist_val,
+                    "location": loc_val,
+                    "vendor_fee_usd": fee_val,
+                    "power_available": pwr_val,
+                    "founders_working": event_founders
+                }
+                live_fin = calculate_dumpling_finances(calc_input, config)
+                
+                # Granular cost mathematics
+                dumplings_count = live_fin["prep_dumplings"]
+                food_cogs = round(dumplings_count * config["ingredient_cogs"], 2)
+                
+                # Packaging split
+                frozen_pct = float(config.get("frozen_upsell_pct", 0.25))
+                if fmt_val == "Frozen Only":
+                    packaging = round(live_fin["projected_customers"] * 0.50, 2)
+                elif fmt_val == "Hot Cooked Only":
+                    packaging = round(live_fin["projected_customers"] * 0.75, 2)
+                else:
+                    hot_c = round(live_fin["projected_customers"] * (1.0 - frozen_pct))
+                    froz_c = round(live_fin["projected_customers"] * frozen_pct)
+                    packaging = round((hot_c * 0.75) + (froz_c * 0.50), 2)
+                    
+                # Labor expenses
+                paid_helpers = max(0, live_fin["total_staff"] - event_founders)
+                transit_hrs = (dist_val / 55.0) * 2.0
+                labor_cost = round(paid_helpers * (hrs_val + 1.5 + transit_hrs) * config["hourly_wage"], 2)
+                
+                # Travel & Lodging
+                mileage_cost = round(dist_val * 2.0 * 0.35, 2)
+                lodging_cost = 220.00 if dist_val > 180 else 0.00
+                
+                # Permits
+                loc_lower = loc_val.lower()
+                permit_fee = 0.00 if dist_val <= 50 else (200.00 if "maricopa" in loc_lower or "phoenix" in loc_lower or "scottsdale" in loc_lower else 150.00)
+                booth_fee = round(fee_val, 2)
+                utility_fee = 40.00 if (not pwr_val and fmt_val != "Frozen Only") else 0.00
+                
+                total_cost = round(food_cogs + packaging + labor_cost + mileage_cost + lodging_cost + permit_fee + booth_fee + utility_fee, 2)
+                
+                cost_rows.append({
+                    "ID": str(row.get("id", "")),
+                    "Event Name": ev_name,
+                    "Food COGS ($)": float(food_cogs),
+                    "Packaging ($)": float(packaging),
+                    "Crew Labor ($)": float(labor_cost),
+                    "Mileage ($)": float(mileage_cost),
+                    "Lodging ($)": float(lodging_cost),
+                    "Permit ($)": float(permit_fee),
+                    "Booth Fee ($)": float(booth_fee),
+                    "Utilities ($)": float(utility_fee),
+                    "Total Costs ($)": float(total_cost)
+                })
+
+    cost_df = pd.DataFrame(cost_rows)
+    
+    if cost_df.empty:
+        cost_df = pd.DataFrame(columns=[
+            "ID", "Event Name", "Food COGS ($)", "Packaging ($)", "Crew Labor ($)",
+            "Mileage ($)", "Lodging ($)", "Permit ($)", "Booth Fee ($)", "Utilities ($)", "Total Costs ($)"
+        ])
+        st.info("The pipeline is empty. Add events via Tab 2 to populate cost breakdowns.")
+    else:
+        edited_cost_df = st.data_editor(
+            cost_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ID": st.column_config.TextColumn("ID", width=60, disabled=True),
+                "Event Name": st.column_config.TextColumn("Event Name", width=220, disabled=True),
+                "Food COGS ($)": st.column_config.NumberColumn("Food COGS ($)", format="$%.2f", width=110),
+                "Packaging ($)": st.column_config.NumberColumn("Packaging ($)", format="$%.2f", width=110),
+                "Crew Labor ($)": st.column_config.NumberColumn("Crew Labor ($)", format="$%.2f", width=110),
+                "Mileage ($)": st.column_config.NumberColumn("Mileage ($)", format="$%.2f", width=105),
+                "Lodging ($)": st.column_config.NumberColumn("Lodging ($)", format="$%.2f", width=105),
+                "Permit ($)": st.column_config.NumberColumn("Permit ($)", format="$%.2f", width=105),
+                "Booth Fee ($)": st.column_config.NumberColumn("Booth Fee ($)", format="$%.2f", width=110),
+                "Utilities ($)": st.column_config.NumberColumn("Utilities ($)", format="$%.2f", width=105),
+                "Total Costs ($)": st.column_config.NumberColumn("Total Costs ($)", format="$%.2f", width=120, disabled=True)
+            },
+            key="cost_breakdown_editor"
+        )
+        
+        # Save cost overrides back to Google Sheets!
+        if st.session_state.get("cost_breakdown_editor") and "edited_rows" in st.session_state.cost_breakdown_editor:
+            cost_changes = st.session_state.cost_breakdown_editor["edited_rows"]
+            if cost_changes:
+                for row_idx, updated_costs in cost_changes.items():
+                    try:
+                        target_id = int(float(str(cost_df.iloc[int(row_idx)]["ID"]).strip()))
+                        fields_to_sync = {}
+                        if "Booth Fee ($)" in updated_costs:
+                            fields_to_sync["vendor_fee_usd"] = float(updated_costs["Booth Fee ($)"])
+                            
+                        if fields_to_sync:
+                            db.update_event_field(target_id, fields_to_sync)
+                            st.success(f"Saved custom cost override for Event #{target_id} to Google Sheets!")
+                            st.rerun()
+                    except Exception as err:
+                        st.error(f"Failed to save cost edit: {err}")

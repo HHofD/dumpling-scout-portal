@@ -73,7 +73,6 @@ from engine import calculate_dumpling_finances
 
 db.initialize_database()
 
-# Load persistent settings directly from Google Sheets
 saved_settings = db.load_settings()
 
 st.sidebar.title(f"👤 Logged in as: {current_user}")
@@ -109,13 +108,18 @@ val_wage = st.sidebar.number_input(
     value=float(saved_settings.get("hourly_wage", 20.0)),
     step=1.0
 )
+default_founders = st.sidebar.selectbox(
+    "Default Founders on Shift",
+    [2, 1, 0],
+    index=[2, 1, 0].index(int(saved_settings.get("founders_working", 2))),
+    help="Default founder attendance for new events. Each event can also be customized individually in the table."
+)
 val_frozen_pct_input = st.sidebar.number_input(
     "Frozen Sales % at Mixed Events (%)",
     min_value=0.0,
     max_value=100.0,
     value=float(saved_settings.get("frozen_upsell_pct", 25.0)),
-    step=5.0,
-    help="Type e.g. 25 for 25% of customers buying frozen packs at 'Both Hot & Frozen' events"
+    step=5.0
 )
 val_fulfillment = st.sidebar.number_input(
     "Fulfillment Time Target (min/order)",
@@ -123,8 +127,7 @@ val_fulfillment = st.sidebar.number_input(
     max_value=10.0,
     value=float(saved_settings.get("fulfillment_time_target", 1.5)),
     step=0.1,
-    format="%.1f",
-    help="Desired checkout-to-handout window. App calculates required griddles."
+    format="%.1f"
 )
 
 config = {
@@ -132,6 +135,7 @@ config = {
     "frozen_pack_price": val_frozen,
     "ingredient_cogs": val_cogs,
     "hourly_wage": val_wage,
+    "founders_working": default_founders,
     "frozen_upsell_pct": val_frozen_pct_input / 100.0,
     "fulfillment_time_target": val_fulfillment
 }
@@ -141,6 +145,7 @@ save_payload = {
     "frozen_pack_price": val_frozen,
     "ingredient_cogs": val_cogs,
     "hourly_wage": val_wage,
+    "founders_working": default_founders,
     "frozen_upsell_pct": val_frozen_pct_input,
     "fulfillment_time_target": val_fulfillment
 }
@@ -149,7 +154,7 @@ if st.sidebar.button("💾 Save Settings Permanently", use_container_width=True)
     if db.save_settings(save_payload):
         st.sidebar.success("Settings saved to Google Sheets!")
 
-st.sidebar.caption("🍳 Griddle math: 24 dumplings / griddle every 12 mins. 1 cook handles up to 3 griddles; 4+ griddles requires 2 cooks.")
+st.sidebar.caption("🍳 Griddle math: 24 dumplings / griddle every 12 mins. Founders on shift reduce paid crew costs.")
 
 nav_tabs = [
     "👥 Shared Team Board", 
@@ -186,10 +191,10 @@ if active_tab == "👥 Shared Team Board":
         db.save_team_message(current_user, team_input)
         st.rerun()
 
-# --- TAB 2: PRIVATE AI SCOUT (WITH BULK EVENT DISCOVERY & AUTO-POPULATION) ---
+# --- TAB 2: PRIVATE AI SCOUT ---
 elif active_tab == "🤫 My Private AI Scout":
     st.subheader(f"🧠 Private Gemini Scout for {current_user}")
-    st.caption("Your autonomous research & operations agent. Ask it to search single events, research cities, OR bulk-add multiple events to your pipeline at once!")
+    st.caption("Your autonomous research & operations agent. Ask it to search events or bulk-add to pipeline.")
     private_df = db.load_private_messages(current_user)
     ai_box = st.container(height=380)
     with ai_box:
@@ -199,7 +204,7 @@ elif active_tab == "🤫 My Private AI Scout":
             with st.chat_message(row["role"]):
                 st.write(row["message"])
                 
-    ai_input = st.chat_input("Research events, or say 'Find 3 food events in Phoenix and save them'...", key="ai_scout_input")
+    ai_input = st.chat_input("Research events or ask AI to add them...", key="ai_scout_input")
     if ai_input:
         db.save_private_message(current_user, "user", ai_input)
         api_k = get_gemini_api_key()
@@ -219,8 +224,8 @@ elif active_tab == "🤫 My Private AI Scout":
         {pipeline_summary if pipeline_summary else "No events in pipeline yet."}
 
         CAPABILITIES:
-        1. If the user asks you to ADD or SAVE one or more events (e.g. 'find 3 events in Phoenix and add them'):
-           Output a structured ACTION block at the end of your reply in this exact JSON format with an array of events:
+        1. If user asks to ADD or SAVE events:
+           Output a structured ACTION block at the end in this format:
            ```action_json
            {{
              "action": "bulk_add_events",
@@ -242,7 +247,7 @@ elif active_tab == "🤫 My Private AI Scout":
            }}
            ```
 
-        2. If the user asks you to UPDATE an existing event:
+        2. If user asks to UPDATE an event:
            Output a structured ACTION block:
            ```action_json
            {{
@@ -253,8 +258,8 @@ elif active_tab == "🤫 My Private AI Scout":
            }}
            ```
 
-        3. If just researching:
-           Answer thoroughly with web research and clear advice. Do NOT include an action_json block.
+        3. If researching:
+           Answer thoroughly with web research and clear advice. Do NOT include action_json.
         """
         
         response = client.models.generate_content(
@@ -274,7 +279,6 @@ elif active_tab == "🤫 My Private AI Scout":
                 action_data = json.loads(json_part)
                 clean_reply = raw_reply.split("```action_json")[0].strip()
                 
-                # SUPPORT BOTH SINGLE AND BULK AUTO-POPULATION!
                 if action_data.get("action") in ["bulk_add_events", "add_event"]:
                     events_to_add = action_data.get("events", [])
                     if not events_to_add and action_data.get("event_name"):
@@ -291,7 +295,8 @@ elif active_tab == "🤫 My Private AI Scout":
                             "distance_from_tucson_miles": ev.get("distance_from_tucson_miles", 100.0),
                             "location": ev.get("location", "Arizona"),
                             "vendor_fee_usd": ev.get("vendor_fee_usd", 150.0),
-                            "power_available": ev.get("power_available", True)
+                            "power_available": ev.get("power_available", True),
+                            "founders_working": default_founders
                         }
                         finances = calculate_dumpling_finances(calc_input, config)
                         db.add_event_to_pipeline({
@@ -306,26 +311,27 @@ elif active_tab == "🤫 My Private AI Scout":
                             "distance_from_tucson_miles": ev.get("distance_from_tucson_miles", 100.0),
                             "vendor_fee_usd": ev.get("vendor_fee_usd", 150.0),
                             "power_available": ev.get("power_available", True),
+                            "founders_working": default_founders,
                             "gross_revenue": finances["gross_revenue"],
                             "total_expenses": finances["total_expenses"],
                             "net_profit": finances["net_profit"],
                             "roi_text": finances["roi_text"],
                             "decision_tier": finances["decision_tier"],
                             "prep_dumplings": finances["prep_dumplings"],
-                            "notes": f"Auto-added via AI by {current_user} (Griddles: {finances['required_griddles']})"
+                            "notes": f"Auto-added by {current_user} (Griddles: {finances['required_griddles']} | Paid Helpers: {finances['paid_helpers']})"
                         })
-                        added_summaries.append(f"• **{ev.get('event_name')}** ({finances['decision_tier']} | Est. Profit: **${finances['net_profit']:,.2f}**)")
+                        added_summaries.append(f"• **{ev.get('event_name')}** ({finances['decision_tier']} | Profit: **${finances['net_profit']:,.2f}**)")
                         
-                    clean_reply += f"\n\n---\n✅ **Bulk Action Completed:** Successfully saved **{len(added_summaries)} event(s)** directly into your Google Sheets pipeline!\n" + "\n".join(added_summaries)
+                    clean_reply += f"\n\n---\n✅ **Bulk Action Completed:** Saved **{len(added_summaries)} event(s)** directly into Google Sheets!\n" + "\n".join(added_summaries)
                     
                 elif action_data.get("action") == "update_event":
                     ev_id = action_data.get("event_id")
                     st_val = action_data.get("new_status", "Applied")
                     fmt_val = action_data.get("new_format", "Both Hot & Frozen")
-                    db.update_event_status_and_format(ev_id, st_val, fmt_val)
+                    db.update_event_field(ev_id, {"participation_status": st_val, "status": st_val, "product_format": fmt_val})
                     clean_reply += f"\n\n---\n✅ **Action Completed:** Updated Event #{ev_id} to Status: **{st_val}** | Format: **{fmt_val}** in Google Sheets!"
             except Exception as e:
-                clean_reply += f"\n\n*(Could not execute autonomous action: {e})*"
+                clean_reply += f"\n\n*(Could not execute action: {e})*"
 
         db.save_private_message(current_user, "assistant", clean_reply)
         st.rerun()
@@ -414,6 +420,7 @@ elif active_tab == "🤫 My Private AI Scout":
             e_dist = st.number_input(f"Distance from Tucson (miles){ai_tag}", value=st.session_state.prefill["dist"], step=5.0)
             e_att = st.number_input(f"Estimated Attendance{ai_tag}", value=st.session_state.prefill["att"], step=50)
             e_hours = st.number_input(f"Operating Hours{ai_tag}", value=st.session_state.prefill["hours"], step=0.5)
+            e_founders_on_shift = st.selectbox("Founders on Shift (Unpaid)", [2, 1, 0], index=[2, 1, 0].index(default_founders))
         with col_c:
             cats = ["Niche GF / Athletic", "General Mass / Street Fair", "Vegan / Wellness"]
             idx = cats.index(st.session_state.prefill["cat"]) if st.session_state.prefill["cat"] in cats else 1
@@ -434,7 +441,8 @@ elif active_tab == "🤫 My Private AI Scout":
                 "distance_from_tucson_miles": e_dist,
                 "location": e_loc,
                 "vendor_fee_usd": e_fee,
-                "power_available": e_power
+                "power_available": e_power,
+                "founders_working": e_founders_on_shift
             }
             results = calculate_dumpling_finances(calc_input, config)
             db.add_event_to_pipeline({
@@ -442,10 +450,11 @@ elif active_tab == "🤫 My Private AI Scout":
                 "category": e_cat, "product_format": e_format, "participation_status": e_status,
                 "est_attendance": e_att, "operating_hours": e_hours,
                 "distance_from_tucson_miles": e_dist, "vendor_fee_usd": e_fee, "power_available": e_power,
+                "founders_working": e_founders_on_shift,
                 "gross_revenue": results["gross_revenue"], "total_expenses": results["total_expenses"],
                 "net_profit": results["net_profit"], "roi_text": results["roi_text"],
                 "decision_tier": results["decision_tier"], "prep_dumplings": results["prep_dumplings"],
-                "notes": f"Added by {current_user} (Griddles: {results['required_griddles']}) | Deadline: {e_deadline} | Src: " + st.session_state.prefill.get("source_url", "Manual")
+                "notes": f"Added by {current_user} (Griddles: {results['required_griddles']} | Paid Helpers: {results['paid_helpers']}) | Deadline: {e_deadline}"
             })
             st.success(f"Calculated: {results['decision_tier']} with Projected Net Profit of ${results['net_profit']:,.2f}! Saved to Tab 3.")
 
@@ -459,7 +468,7 @@ elif active_tab == "📊 Opportunities Pipeline":
             st.markdown("### 🟢 Tier 1: Green Light")
             st.markdown(
                 "**Net Profit $\ge$ $1,100 & ROI $\ge$ 75%**\n\n"
-                "**Action:** High-priority booking. Highly lucrative events that easily absorb travel, staffing, and lodging overhead with strong returns."
+                "**Action:** High-priority booking. Highly lucrative events that easily absorb travel and lodging overhead with strong returns."
             )
         with col_t2:
             st.markdown("### 🟡 Tier 2: Tactical Fill-In")
@@ -484,6 +493,14 @@ elif active_tab == "📊 Opportunities Pipeline":
         except Exception:
             return default
 
+    def safe_int(val, default):
+        try:
+            if pd.isna(val) or val is None or str(val).strip() == "":
+                return default
+            return int(float(str(val).replace(",", "").strip()))
+        except Exception:
+            return default
+
     display_rows = []
     if not pipeline_df.empty and "event_name" in pipeline_df.columns:
         for _, row in pipeline_df.iterrows():
@@ -498,6 +515,11 @@ elif active_tab == "📊 Opportunities Pipeline":
                 loc_val = str(row.get("location") or "Arizona")
                 pwr_val = True if str(row.get("power_available", "True")).lower() in ["true", "1", "yes"] else False
                 
+                # Per-event founder setting (defaults to sidebar default if empty)
+                event_founders = safe_int(row.get("founders_working"), default_founders)
+                if event_founders not in [0, 1, 2]:
+                    event_founders = default_founders
+                
                 try:
                     recalc_input = {
                         "event_name": ev_name,
@@ -508,7 +530,8 @@ elif active_tab == "📊 Opportunities Pipeline":
                         "distance_from_tucson_miles": dist_val,
                         "location": loc_val,
                         "vendor_fee_usd": fee_val,
-                        "power_available": pwr_val
+                        "power_available": pwr_val,
+                        "founders_working": event_founders
                     }
                     live_fin = calculate_dumpling_finances(recalc_input, config)
                     
@@ -517,7 +540,6 @@ elif active_tab == "📊 Opportunities Pipeline":
                     prof_str = f"${live_fin['net_profit']:,.2f}"
                     roi_str = live_fin['roi_text']
                     
-                    # 🟢🟡🔴 COLOR BADGES MATCHING THE TIER EXPLANATION
                     tier_raw = live_fin['decision_tier']
                     if "Tier 1" in tier_raw:
                         tier_display = "🟢 Tier 1: Green Light"
@@ -544,6 +566,7 @@ elif active_tab == "📊 Opportunities Pipeline":
                     "Date": str(row.get("event_date", "")),
                     "Crowd": f"{int(att_val):,}",
                     "Griddles": grid_str,
+                    "Founders": str(event_founders),
                     "Format": fmt_val,
                     "Status": str(row.get("participation_status", "Discovered")),
                     "Tier": tier_display,
@@ -559,11 +582,11 @@ elif active_tab == "📊 Opportunities Pipeline":
     
     if final_table.empty:
         final_table = pd.DataFrame(columns=[
-            "ID", "Event Name", "Location", "Date", "Crowd", "Griddles", "Format", "Status",
+            "ID", "Event Name", "Location", "Date", "Crowd", "Griddles", "Founders", "Format", "Status",
             "Tier", "Revenue", "Costs", "Profit", "ROI", "Target (pcs)", "Notes"
         ])
 
-    st.caption("📊 Interactive Grid • Double-click any Status or Format cell below to edit in-line!")
+    st.caption("📊 Interactive Grid • Double-click Founders, Format, or Status to edit directly!")
     
     edited_df = st.data_editor(
         final_table,
@@ -571,36 +594,46 @@ elif active_tab == "📊 Opportunities Pipeline":
         hide_index=True,
         column_config={
             "ID": st.column_config.TextColumn("ID", width=60, disabled=True),
-            "Event Name": st.column_config.TextColumn("Event Name", width=230),
-            "Location": st.column_config.TextColumn("Location", width=120),
+            "Event Name": st.column_config.TextColumn("Event Name", width=220),
+            "Location": st.column_config.TextColumn("Location", width=115),
             "Date": st.column_config.TextColumn("Date", width=105),
-            "Crowd": st.column_config.TextColumn("Crowd", width=85),
-            "Griddles": st.column_config.TextColumn("Griddles", width=85, disabled=True),
+            "Crowd": st.column_config.TextColumn("Crowd", width=80),
+            "Griddles": st.column_config.TextColumn("Griddles", width=80, disabled=True),
+            "Founders": st.column_config.SelectboxColumn("Founders", width=95, options=["2", "1", "0"], help="Founders working (unpaid). 2 = both founders ($0 labor up to 2 staff). 1 = 1 founder. 0 = all paid."),
             "Format": st.column_config.SelectboxColumn("Format", width=140, options=["Both Hot & Frozen", "Hot Cooked Only", "Frozen Only"]),
-            "Status": st.column_config.SelectboxColumn("Status", width=150, options=["Discovered", "Already Participating", "Booked", "Applied", "Reviewing", "Completed", "Declined"]),
+            "Status": st.column_config.SelectboxColumn("Status", width=145, options=["Discovered", "Already Participating", "Booked", "Applied", "Reviewing", "Completed", "Declined"]),
             "Tier": st.column_config.TextColumn("Tier", width=155, disabled=True),
             "Revenue": st.column_config.TextColumn("Revenue", width=95, disabled=True),
             "Costs": st.column_config.TextColumn("Costs", width=95, disabled=True),
             "Profit": st.column_config.TextColumn("Profit", width=95, disabled=True),
             "ROI": st.column_config.TextColumn("ROI", width=75, disabled=True),
             "Target (pcs)": st.column_config.TextColumn("Target (pcs)", width=95, disabled=True),
-            "Notes": st.column_config.TextColumn("Notes", width=260)
+            "Notes": st.column_config.TextColumn("Notes", width=240)
         },
         key="pipeline_editor"
     )
     
+    # Save any in-line edits (Founders, Format, or Status) directly to Google Sheets!
     if st.session_state.get("pipeline_editor") and "edited_rows" in st.session_state.pipeline_editor:
         changes = st.session_state.pipeline_editor["edited_rows"]
         if changes:
             for row_idx, updated_cols in changes.items():
                 try:
                     target_id = int(final_table.iloc[int(row_idx)]["ID"])
-                    new_status_val = updated_cols.get("Status", final_table.iloc[int(row_idx)]["Status"])
-                    new_format_val = updated_cols.get("Format", final_table.iloc[int(row_idx)]["Format"])
+                    fields_to_update = {}
                     
-                    db.update_event_status_and_format(target_id, new_status_val, new_format_val)
-                    st.success(f"Successfully saved edits for Event #{target_id} directly to Google Sheets!")
-                    st.rerun()
+                    if "Founders" in updated_cols:
+                        fields_to_update["founders_working"] = int(updated_cols["Founders"])
+                    if "Status" in updated_cols:
+                        fields_to_update["participation_status"] = updated_cols["Status"]
+                        fields_to_update["status"] = updated_cols["Status"]
+                    if "Format" in updated_cols:
+                        fields_to_update["product_format"] = updated_cols["Format"]
+                    
+                    if fields_to_update:
+                        db.update_event_field(target_id, fields_to_update)
+                        st.success(f"Saved edits for Event #{target_id} to Google Sheets!")
+                        st.rerun()
                 except Exception as err:
                     st.error(f"Failed to save in-line edits: {err}")
     

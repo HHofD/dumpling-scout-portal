@@ -619,11 +619,11 @@ elif active_tab == "📊 Opportunities Pipeline":
         if changes:
             for row_idx, updated_cols in changes.items():
                 try:
-                    target_id = int(final_table.iloc[int(row_idx)]["ID"])
+                    target_id = int(float(str(final_table.iloc[int(row_idx)]["ID"]).strip()))
                     fields_to_update = {}
                     
                     if "Founders" in updated_cols:
-                        fields_to_update["founders_working"] = int(updated_cols["Founders"])
+                        fields_to_update["founders_working"] = int(float(str(updated_cols["Founders"]).strip()))
                     if "Status" in updated_cols:
                         fields_to_update["participation_status"] = updated_cols["Status"]
                         fields_to_update["status"] = updated_cols["Status"]
